@@ -133,7 +133,7 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 
 					diff -= float64(k) * s.expected
 
-					deltaPhase := int(diff * (1.0 / math.Pi))
+					deltaPhase := int(diff / math.Pi)
 					if deltaPhase >= 0 {
 						deltaPhase += deltaPhase & 1
 					} else {
