@@ -3,7 +3,6 @@ module github.com/intermernet/pitcher
 go 1.18
 
 require (
-	fyne.io/fyne v1.4.3
 	fyne.io/fyne/v2 v2.3.0
 	github.com/gen2brain/malgo v0.11.10
 )
