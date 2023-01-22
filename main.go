@@ -46,8 +46,10 @@ func main() {
 	deviceConfig.SampleRate = uint32(sampleRate)
 	deviceConfig.Alsa.NoMMap = 1
 	deviceConfig.Wasapi.NoAutoConvertSRC = 1
+	// deviceConfig.Capture.ShareMode = malgo.Exclusive
+	// deviceConfig.Playback.ShareMode = malgo.Exclusive
 
-	s := newShifter(4.0, 2048, 32, sampleRate, bitDepth, channels)
+	s := newShifter(0.0, 2048, 32, sampleRate, bitDepth, channels)
 
 	window := gui(s)
 

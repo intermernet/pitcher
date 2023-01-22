@@ -7,6 +7,8 @@
 package main
 
 import (
+	"log"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
@@ -16,6 +18,11 @@ import (
 
 func gui(s *shifter) fyne.Window {
 	shiftApp := app.New()
+	icon, err := fyne.LoadResourceFromPath("resource/audio-waveform-icon-8.jpg")
+	if err != nil {
+		log.Fatalln("icon file not found")
+	}
+	shiftApp.SetIcon(icon)
 	w := shiftApp.NewWindow("Pitcher")
 	w.Resize(fyne.NewSize(800, 200))
 
