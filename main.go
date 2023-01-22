@@ -49,7 +49,7 @@ func main() {
 	// deviceConfig.Capture.ShareMode = malgo.Exclusive
 	// deviceConfig.Playback.ShareMode = malgo.Exclusive
 
-	s := newShifter(0.0, 2048, 32, sampleRate, bitDepth, channels)
+	s := newShifter(2048, 32, sampleRate, bitDepth, channels)
 
 	window := gui(s)
 

@@ -55,9 +55,9 @@ type shifter struct {
 	volume float64
 }
 
-func newShifter(pitchShift float64, fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int) *shifter {
+func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int) *shifter {
 	s := new(shifter)
-	s.pitchShift = pitchShift
+	s.pitchShift = 0.0
 	s.fftFrameSize = fftFrameSize
 	s.oversampling = oversampling
 	s.sampleRate = sampleRate
@@ -81,10 +81,10 @@ func newShifter(pitchShift float64, fftFrameSize int, oversampling int, sampleRa
 	s.windowFactors = make([]float64, fftFrameSize)
 	t := 0.0
 	for i := 0; i < fftFrameSize; i++ {
-		w := -0.5*math.Cos(t) + .5
+		w := -0.5*math.Cos(t) + 0.5
 		s.window[i] = w
 		s.windowFactors[i] = w * (2.0 / float64(fftFrameSize*oversampling))
-		t += (math.Pi * 2) / float64(fftFrameSize)
+		t += (math.Pi * 2.0) / float64(fftFrameSize)
 	}
 
 	s.frame = make([]float64, fftFrameSize)
@@ -114,7 +114,7 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 
 				for k := 0; k < s.fftFrameSize; k++ {
 					s.workBuffer[2*k] = s.frame[k] * s.window[k]
-					s.workBuffer[(2*k)+1] = 0
+					s.workBuffer[(2*k)+1] = 0.0
 				}
 
 				stft(s.workBuffer, s.fftFrameSize, -1)
@@ -133,7 +133,7 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 
 					diff -= float64(k) * s.expected
 
-					deltaPhase := int(diff * (1 / math.Pi))
+					deltaPhase := int(diff * (1.0 / math.Pi))
 					if deltaPhase >= 0 {
 						deltaPhase += deltaPhase & 1
 					} else {
@@ -141,15 +141,15 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 					}
 
 					diff -= math.Pi * float64(deltaPhase)
-					diff *= float64(s.oversampling) / (math.Pi * 2)
+					diff *= float64(s.oversampling) / (math.Pi * 2.0)
 					diff = (float64(k) + diff) * freqPerBin
 
 					s.frequencies[k] = diff
 				}
 
 				for k := 0; k < s.fftFrameSize; k++ {
-					s.synthMagnitudes[k] = 0
-					s.synthFrequencies[k] = 0
+					s.synthMagnitudes[k] = 0.0
+					s.synthFrequencies[k] = 0.0
 				}
 
 				for k := 0; k < s.fftFrameSize/2; k++ {
@@ -199,15 +199,6 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 			setInt16_f64(s.out, i, f64in[i/int(byteDepth*2)]*s.volume)
 		}
 	}
-
-	// for k := 0; k < 2*s.fftFrameSize; k++ {
-	// 	s.outAcc[k] = 0
-	// }
-	// for k := 0; k < s.fftFrameSize/2+1; k++ {
-	// 	s.sumPhase[k] = 0
-	// }
-	// datap := &pInputSamples
-	// *datap = out
 }
 
 // stft : FFT routine, (C)1996 S.M.Bernsee. Sign = -1 is FFT, 1 is iFFT (inverse)
