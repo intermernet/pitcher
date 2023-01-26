@@ -6,3 +6,4 @@ Based on an algorithm by [Stephan Bernsee](http://blogs.zynaptiq.com/bernsee/pit
 
 Uses [malgo](https://github.com/gen2brain/malgo) (Based on [Miniaudio](https://miniaud.io/)) for audio IO.
 
+[fyne](https://fyne.io/) for GUI
