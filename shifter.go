@@ -102,6 +102,9 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 	freqPerBin := float64(s.sampleRate) / float64(s.fftFrameSize)
 	frameIndex := s.latency
 
+	// Calculate semitones to pitch shift
+	ratio := math.Exp2(s.pitchShift / 12.0)
+
 	// De-interleave multi channel PCM into floats
 	for c := 0; c < int(s.channels); c++ {
 		f64in := bytesToF64(s.data, s.channels, bitDepth, c)
@@ -173,10 +176,10 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 
 				// Do the actual pitch shifting
 				for k := 0; k < s.fftFrameSize/2; k++ {
-					l := int(float64(k) * math.Exp2(s.pitchShift/12.0))
+					l := int(float64(k) * ratio)
 					if l < s.fftFrameSize/2 {
 						s.synthMagnitudes[l] += s.magnitudes[k]
-						s.synthFrequencies[l] = s.frequencies[k] * math.Exp2(s.pitchShift/12.0)
+						s.synthFrequencies[l] = s.frequencies[k] * ratio
 					}
 				}
 
