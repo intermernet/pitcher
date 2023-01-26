@@ -18,6 +18,8 @@ import (
 
 func gui(s *shifter) fyne.Window {
 	shiftApp := app.New()
+
+	// Define app icon and set window title / size
 	icon, err := fyne.LoadResourceFromPath("resource/audio-waveform-icon-8.jpg")
 	if err != nil {
 		log.Fatalln("icon file not found")
@@ -26,18 +28,21 @@ func gui(s *shifter) fyne.Window {
 	w := shiftApp.NewWindow("Pitcher")
 	w.Resize(fyne.NewSize(800, 200))
 
+	// Pitch slider
 	pitch := binding.BindFloat(&s.pitchShift)
 	pitch.Set(0.0)
 	pitchSlider := widget.NewSliderWithData(-12.0, 12.0, pitch)
 	pitchSlider.Step = 0.01
 	pitchText := binding.FloatToStringWithFormat(pitch, "Pitch = %0.2f")
 
+	// Volume slider
 	vol := binding.BindFloat(&s.volume)
 	vol.Set(0.5)
 	volSlider := widget.NewSliderWithData(0.0, 1.0, vol)
 	volSlider.Step = 0.01
 	volText := binding.FloatToStringWithFormat(vol, "Volume = %0.1f")
 
+	// Layout
 	w.SetContent(container.NewVBox(
 		widget.NewLabelWithData(pitchText),
 		pitchSlider,

@@ -21,6 +21,7 @@ func main() {
 	// 	log.Println(http.ListenAndServe("localhost:9999", nil))
 	// }()
 
+	// Setup audio stuff
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		fmt.Printf("LOG: %v", message)
 	})
@@ -44,23 +45,32 @@ func main() {
 	deviceConfig.Playback.Format = format
 	deviceConfig.Playback.Channels = uint32(channels)
 	deviceConfig.SampleRate = uint32(sampleRate)
+
+	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
 	deviceConfig.Alsa.NoMMap = 1
 	deviceConfig.Wasapi.NoAutoConvertSRC = 1
 
+	// Seems like the sweetspot for quality, but could be due to bugs elsewhere
 	s := newShifter(2048, 32, sampleRate, bitDepth, channels)
 
+	// Init GUI
 	window := gui(s)
 
+	// Pitch shift callback
 	deviceCallbacks := malgo.DeviceCallbacks{
 		Data: s.shift,
 	}
+
+	// Init audio
 	device, err := malgo.InitDevice(ctx.Context, deviceConfig, deviceCallbacks)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
 	defer device.Uninit()
 
+	// Start audio processing in goroutine
 	go func() {
 		err := device.Start()
 		if err != nil {
@@ -68,5 +78,6 @@ func main() {
 		}
 	}()
 
+	// Start GUI
 	window.ShowAndRun()
 }
