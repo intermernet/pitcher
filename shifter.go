@@ -49,9 +49,9 @@ type shifter struct {
 	outAcc                            []float64
 	expected                          float64
 	window, windowFactors             []float64
-
+	// Buffers
 	data, out []byte
-
+	// Output volume
 	volume float64
 }
 
@@ -227,6 +227,7 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 		}
 		// Re-interleave and convert to bytes
 		for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * 2) {
+			// Apply volume scaling during conversion
 			setInt16_f64(s.out, i, f64in[i/int(byteDepth*2)]*s.volume)
 		}
 	}
