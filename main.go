@@ -22,6 +22,7 @@ func main() {
 	// }()
 
 	// Setup audio stuff
+	//ctx, err := malgo.InitContext([]malgo.Backend{malgo.BackendDsound}, malgo.ContextConfig{}, func(message string) {
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		fmt.Printf("LOG: %v", message)
 	})
@@ -45,6 +46,9 @@ func main() {
 	deviceConfig.Playback.Format = format
 	deviceConfig.Playback.Channels = uint32(channels)
 	deviceConfig.SampleRate = uint32(sampleRate)
+
+	// deviceConfig.PeriodSizeInFrames = 480
+	deviceConfig.Periods = 4
 
 	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
 	deviceConfig.Alsa.NoMMap = 1
