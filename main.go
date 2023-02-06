@@ -8,18 +8,19 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
-	// "net/http"
-	// _ "net/http/pprof"
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/gen2brain/malgo"
 )
 
 func main() {
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:9999", nil))
-	// }()
+	go func() {
+		log.Println(http.ListenAndServe("localhost:9999", nil))
+	}()
 
 	// Setup audio stuff
 	//ctx, err := malgo.InitContext([]malgo.Backend{malgo.BackendDsound}, malgo.ContextConfig{}, func(message string) {
@@ -35,7 +36,7 @@ func main() {
 		ctx.Free()
 	}()
 
-	sampleRate := 44100.0
+	sampleRate := 25600.0
 	channels := 2
 	format := malgo.FormatS16
 	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
@@ -47,7 +48,7 @@ func main() {
 	deviceConfig.Playback.Channels = uint32(channels)
 	deviceConfig.SampleRate = uint32(sampleRate)
 
-	// deviceConfig.PeriodSizeInFrames = 480
+	//deviceConfig.PeriodSizeInFrames = 480
 	deviceConfig.Periods = 4
 
 	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
@@ -55,7 +56,7 @@ func main() {
 	deviceConfig.Wasapi.NoAutoConvertSRC = 1
 
 	// Seems like the sweetspot for quality, but could be due to bugs elsewhere
-	s := newShifter(2048, 32, sampleRate, bitDepth, channels)
+	s := newShifter(1024, 32, sampleRate, bitDepth, channels)
 
 	// Init GUI
 	window := gui(s)
