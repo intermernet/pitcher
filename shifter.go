@@ -29,6 +29,7 @@
 package main
 
 import (
+	"bytes"
 	"math"
 )
 
@@ -50,7 +51,8 @@ type shifter struct {
 	expected                          float64
 	window, windowFactors             []float64
 	// Buffers
-	data, out []byte
+	data, out    []byte
+	record, play *bytes.Buffer
 	// Output volume
 	volume float64
 }
@@ -93,7 +95,10 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 
 func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) {
 	// Map buffers
-	s.data = pInputSamples
+	for n := 0; n < s.fftFrameSize; n += copy(s.data, pInputSamples) {
+		s.data = append(s.data, pInputSamples[:s.fftFrameSize-n]...)
+	}
+	// s.data = pInputSamples
 	s.out = pOutputSample
 
 	bitDepth := s.bitDepth
