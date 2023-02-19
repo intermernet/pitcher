@@ -57,7 +57,7 @@ type shifter struct {
 
 func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int) *shifter {
 	s := new(shifter)
-	s.pitchShift = 0.0
+	s.pitchShift = float64(*shift)
 	s.fftFrameSize = fftFrameSize
 	s.oversampling = oversampling
 	s.sampleRate = sampleRate
@@ -281,6 +281,8 @@ func stft(data []float64, fftFrameSize, sign int) {
 		}
 	}
 }
+
+// Helper functions to convert PCM samples to and from float64
 
 func bytesToF64(data []byte, channels, bitRate uint16, channel int) []float64 {
 	byteDepth := bitRate / 8

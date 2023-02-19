@@ -7,9 +7,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -17,7 +19,18 @@ import (
 	"github.com/gen2brain/malgo"
 )
 
+var shift *int
+
 func main() {
+
+	guiOn := flag.Bool("gui", false, "Display GUI")
+	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
+	flag.Parse()
+
+	if *shift < -12 || *shift > 12 {
+		log.Fatal("\"shift\" flag must be between -12 and 12 inclusive")
+	}
+	// pprof server
 	go func() {
 		log.Println(http.ListenAndServe("localhost:9999", nil))
 	}()
@@ -36,7 +49,7 @@ func main() {
 		ctx.Free()
 	}()
 
-	sampleRate := 25600.0
+	sampleRate := 25600.0 // TODO(mike): This is a horrible hack!
 	channels := 2
 	format := malgo.FormatS16
 	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
@@ -48,7 +61,6 @@ func main() {
 	deviceConfig.Playback.Channels = uint32(channels)
 	deviceConfig.SampleRate = uint32(sampleRate)
 
-	//deviceConfig.PeriodSizeInFrames = 480
 	deviceConfig.Periods = 4
 
 	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
@@ -59,8 +71,9 @@ func main() {
 	s := newShifter(1024, 32, sampleRate, bitDepth, channels)
 
 	// Init GUI
-	window := gui(s)
-
+	if *guiOn {
+		window = gui(s)
+	}
 	// Pitch shift callback
 	deviceCallbacks := malgo.DeviceCallbacks{
 		Data: s.shift,
@@ -84,5 +97,15 @@ func main() {
 	}()
 
 	// Start GUI
-	window.ShowAndRun()
+	switch *guiOn {
+	case true:
+		window.ShowAndRun()
+	default:
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		fmt.Println("Press Ctrl-C / Cmd-. to exit")
+		<-c
+		fmt.Println("Exiting...")
+		os.Exit(0)
+	}
 }

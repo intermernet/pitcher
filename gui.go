@@ -16,6 +16,8 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+var window fyne.Window
+
 func gui(s *shifter) fyne.Window {
 	shiftApp := app.New()
 
@@ -30,7 +32,7 @@ func gui(s *shifter) fyne.Window {
 
 	// Pitch slider
 	pitch := binding.BindFloat(&s.pitchShift)
-	pitch.Set(0.0)
+	pitch.Set(float64(*shift))
 	pitchSlider := widget.NewSliderWithData(-12.0, 12.0, pitch)
 	pitchSlider.Step = 0.01
 	pitchText := binding.FloatToStringWithFormat(pitch, "Pitch = %0.2f")
