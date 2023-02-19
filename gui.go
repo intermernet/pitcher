@@ -39,7 +39,7 @@ func gui(s *shifter) fyne.Window {
 
 	// Volume slider
 	vol := binding.BindFloat(&s.volume)
-	vol.Set(0.5)
+	vol.Set(1.0)
 	volSlider := widget.NewSliderWithData(0.0, 1.0, vol)
 	volSlider.Step = 0.01
 	volText := binding.FloatToStringWithFormat(vol, "Volume = %0.1f")

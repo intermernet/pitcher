@@ -29,7 +29,6 @@
 package main
 
 import (
-	"bytes"
 	"math"
 )
 
@@ -51,8 +50,7 @@ type shifter struct {
 	expected                          float64
 	window, windowFactors             []float64
 	// Buffers
-	data, out    []byte
-	record, play *bytes.Buffer
+	data, out []byte
 	// Output volume
 	volume float64
 }
@@ -76,6 +74,7 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	s.lastPhase = make([]float64, fftFrameSize/2+1)
 	s.sumPhase = make([]float64, fftFrameSize/2+1)
 	s.outAcc = make([]float64, 2*fftFrameSize)
+	s.volume = 1.0
 
 	s.expected = 2 * math.Pi * float64(s.step) / float64(fftFrameSize)
 
@@ -95,10 +94,7 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 
 func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) {
 	// Map buffers
-	for n := 0; n < s.fftFrameSize; n += copy(s.data, pInputSamples) {
-		s.data = append(s.data, pInputSamples[:s.fftFrameSize-n]...)
-	}
-	// s.data = pInputSamples
+	s.data = pInputSamples
 	s.out = pOutputSample
 
 	bitDepth := s.bitDepth
