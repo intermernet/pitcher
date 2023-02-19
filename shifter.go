@@ -29,7 +29,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"math"
 )
 
@@ -320,27 +319,4 @@ func getFloat64(d []byte, i int, byteDepth uint16) float64 {
 
 func setInt16_f64(d []byte, i int, in float64) {
 	setInt16(d, i, int64(in*32768))
-}
-
-func bytesToFloats(bytes []byte) []float64 {
-	if len(bytes)%4 != 0 {
-		panic("invalid bytes buffer length")
-	}
-	floats := make([]float64, len(bytes)/4)
-	for i := 0; i < len(floats); i++ {
-		bits := binary.LittleEndian.Uint32(bytes[i*4 : i*4+4])
-		floats[i] = float64(math.Float32frombits(bits))
-	}
-	return floats
-}
-
-func floatsToBytes(floats []float64) []byte {
-	bytes := make([]byte, len(floats)*4)
-	fbytes := make([]byte, 4)
-	for i := 0; i < len(floats); i++ {
-		bits := math.Float32bits(float32(floats[i]))
-		binary.LittleEndian.PutUint32(fbytes, bits)
-		bytes = append(bytes, fbytes...)
-	}
-	return bytes
 }
