@@ -131,7 +131,7 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 
 				// Analysis
 				for k := 0; k <= s.fftFrameSize/2; k++ {
-					// De-intterleave
+					// De-interleave
 					real := s.workBuffer[2*k]
 					imag := s.workBuffer[(2*k)+1]
 
