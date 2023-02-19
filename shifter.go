@@ -168,13 +168,11 @@ func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) 
 					s.frequencies[k] = diff
 				}
 
-				// Processing
+				// Do the actual pitch shifting
 				for k := 0; k < s.fftFrameSize; k++ {
 					s.synthMagnitudes[k] = 0.0
 					s.synthFrequencies[k] = 0.0
 				}
-
-				// Do the actual pitch shifting
 				for k := 0; k < s.fftFrameSize/2; k++ {
 					l := int(float64(k) * ratio)
 					if l < s.fftFrameSize/2 {
