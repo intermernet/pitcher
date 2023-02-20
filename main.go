@@ -49,7 +49,7 @@ func main() {
 		ctx.Free()
 	}()
 
-	sampleRate := 25600.0 // TODO(mike): This is a horrible hack!
+	sampleRate := 48000.0 // TODO(mike): This is a horrible hack!
 	channels := 2
 	format := malgo.FormatS16
 	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
@@ -61,7 +61,7 @@ func main() {
 	deviceConfig.Playback.Channels = uint32(channels)
 	deviceConfig.SampleRate = uint32(sampleRate)
 
-	deviceConfig.Periods = 4
+	deviceConfig.Periods = 3
 
 	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
 	deviceConfig.Alsa.NoMMap = 1
@@ -74,9 +74,13 @@ func main() {
 	if *guiOn {
 		window = gui(s)
 	}
+
+	//start pitch shifter in goroutine
+	go s.shift()
+
 	// Pitch shift callback
 	deviceCallbacks := malgo.DeviceCallbacks{
-		Data: s.shift,
+		Data: s.process,
 	}
 
 	// Init audio
@@ -100,11 +104,13 @@ func main() {
 	switch *guiOn {
 	case true:
 		window.ShowAndRun()
+		s.quit <- true
 	default:
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt)
 		fmt.Println("Press Ctrl-C / Cmd-. to exit")
 		<-c
+		s.quit <- true
 		fmt.Println("Exiting...")
 		os.Exit(0)
 	}

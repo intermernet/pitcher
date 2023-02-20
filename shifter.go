@@ -53,6 +53,12 @@ type shifter struct {
 	data, out []byte
 	// Output volume
 	volume float64
+
+	bytesPerFrame int
+	// buffer channels
+	record, play chan byte
+
+	quit chan bool
 }
 
 func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int) *shifter {
@@ -89,147 +95,187 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	}
 
 	s.frame = make([]float64, fftFrameSize)
+	s.bytesPerFrame = fftFrameSize * int(bitDepth) / 8 * channels
+	s.data = make([]byte, s.bytesPerFrame)
+	s.out = make([]byte, s.bytesPerFrame)
+
+	s.record = make(chan byte, s.bytesPerFrame)
+	s.play = make(chan byte, s.bytesPerFrame)
+
+	s.quit = make(chan bool)
+
 	return s
 }
 
-func (s *shifter) shift(pOutputSample, pInputSamples []byte, framecount uint32) {
-	// Map buffers
-	s.data = pInputSamples
-	s.out = pOutputSample
-
-	bitDepth := s.bitDepth
-	byteDepth := bitDepth / 8
-
-	freqPerBin := float64(s.sampleRate) / float64(s.fftFrameSize)
-	frameIndex := s.latency
-
-	// Calculate semitones to pitch shift
-	ratio := math.Exp2(s.pitchShift / 12.0)
-
-	// De-interleave multi channel PCM into floats
-	for c := 0; c < int(s.channels); c++ {
-		f64in := bytesToF64(s.data, s.channels, bitDepth, c)
-		f64out := f64in
-		// Process buffer
-		for i := 0; i < len(f64in); i++ {
-			s.frame[frameIndex] = f64in[i]
-			f64out[i] = s.stack[frameIndex-s.latency]
-			frameIndex++
-
-			// Have a full frame
-			if frameIndex >= s.fftFrameSize {
-				frameIndex = s.latency
-
-				// Interleave real / imag and do windowing
-				for k := 0; k < s.fftFrameSize; k++ {
-					s.workBuffer[2*k] = s.frame[k] * s.window[k]
-					s.workBuffer[(2*k)+1] = 0.0
-				}
-
-				// Do transform
-				stft(s.workBuffer, s.fftFrameSize, -1)
-
-				// Analysis
-				for k := 0; k <= s.fftFrameSize/2; k++ {
-					// De-interleave
-					real := s.workBuffer[2*k]
-					imag := s.workBuffer[(2*k)+1]
-
-					// Compute magnitude and phase
-					magn := 2 * math.Sqrt(real*real+imag*imag)
-					s.magnitudes[k] = magn
-
-					phase := math.Atan2(imag, real)
-
-					// Compute phase difference
-					diff := phase - s.lastPhase[k]
-					s.lastPhase[k] = phase
-
-					// Subtract expected phase difference
-					diff -= float64(k) * s.expected
-
-					// Map deltaphase to +/- π
-					deltaPhase := int(diff / math.Pi)
-					if deltaPhase >= 0 {
-						deltaPhase += deltaPhase & 1
-					} else {
-						deltaPhase -= deltaPhase & 1
-					}
-					diff -= math.Pi * float64(deltaPhase)
-
-					// Get deviation from bin freq
-					diff *= float64(s.oversampling) / (math.Pi * 2.0)
-
-					// Compute k-th partials freq
-					diff = (float64(k) + diff) * freqPerBin
-
-					// Store magnitude and frequency
-					s.magnitudes[k] = magn
-					s.frequencies[k] = diff
-				}
-
-				// Do the actual pitch shifting
-				for k := 0; k < s.fftFrameSize; k++ {
-					s.synthMagnitudes[k] = 0.0
-					s.synthFrequencies[k] = 0.0
-				}
-				for k := 0; k < s.fftFrameSize/2; k++ {
-					l := int(float64(k) * ratio)
-					if l < s.fftFrameSize/2 {
-						s.synthMagnitudes[l] += s.magnitudes[k]
-						s.synthFrequencies[l] = s.frequencies[k] * ratio
-					}
-				}
-
-				// Synthesis
-				for k := 0; k <= s.fftFrameSize/2; k++ {
-					// Get magnitude and true freq
-					magn := s.synthMagnitudes[k]
-					tmp := s.synthFrequencies[k]
-					// Subtract bin mid freq
-					tmp -= float64(k) * freqPerBin
-					// Get bin deviation from freq deviation
-					tmp /= freqPerBin
-					// Include oversampling
-					tmp *= 2 * math.Pi / float64(s.oversampling)
-					// Add overlap phase advance
-					tmp += float64(k) * s.expected
-					// Accumulate delta phase
-					s.sumPhase[k] += tmp
-					// Re-interleave real and imag
-					s.workBuffer[2*k] = magn * math.Cos(s.sumPhase[k])
-					s.workBuffer[(2*k)+1] = magn * math.Sin(s.sumPhase[k])
-				}
-
-				// Zero negative frequencies
-				for k := s.fftFrameSize + 2; k < 2*s.fftFrameSize; k++ {
-					s.workBuffer[k] = 0.0
-				}
-
-				// Inverse STFT
-				stft(s.workBuffer, s.fftFrameSize, 1)
-
-				// Windowing and add to output accumulator
-				for k := 0; k < s.fftFrameSize; k++ {
-					s.outAcc[k] += s.windowFactors[k] * s.workBuffer[2*k]
-				}
-				for k := 0; k < s.step; k++ {
-					s.stack[k] = s.outAcc[k]
-				}
-
-				// Shift output accumulator and buffer
-				for k := 0; k < s.fftFrameSize; k++ {
-					s.outAcc[k] = s.outAcc[k+s.step]
-				}
-				for k := 0; k < s.latency; k++ {
-					s.frame[k] = s.frame[k+s.step]
-				}
-			}
+func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32) {
+	for f := 0; f < int(framecount); f++ {
+		s.record <- pInputSamples[f]
+	}
+	//fmt.Println("sent samples...")
+	if len(s.play) >= int(framecount) {
+		for f := 0; f < int(framecount); f++ {
+			pOutputSample[f] = <-s.play
 		}
-		// Re-interleave and convert to bytes
-		for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * 2) {
-			// Apply volume scaling during conversion
-			setInt16_f64(s.out, i, f64in[i/int(byteDepth*2)]*s.volume)
+		//fmt.Println("got samples...")
+	}
+}
+
+func (s *shifter) shift() {
+	// Map buffers
+	// s.data = pInputSamples
+	// s.out = pOutputSample
+	for {
+		select {
+		case <-s.quit:
+			return
+		default:
+			switch {
+			case len(s.record) >= s.bytesPerFrame:
+				for f := 0; f < s.bytesPerFrame; f++ {
+					s.data[f] = <-s.record
+				}
+				for f := 0; f < s.bytesPerFrame; f++ {
+					s.play <- s.out[f]
+				}
+
+				bitDepth := s.bitDepth
+				byteDepth := bitDepth / 8
+
+				freqPerBin := float64(s.sampleRate) / float64(s.fftFrameSize)
+				frameIndex := s.latency
+
+				// Calculate semitones to pitch shift
+				ratio := math.Exp2(s.pitchShift / 12.0)
+
+				// De-interleave multi channel PCM into floats
+				for c := 0; c < int(s.channels); c++ {
+					f64in := bytesToF64(s.data, s.channels, bitDepth, c)
+					f64out := f64in
+					// Process buffer
+					for i := 0; i < len(f64in); i++ {
+						s.frame[frameIndex] = f64in[i]
+						f64out[i] = s.stack[frameIndex-s.latency]
+						frameIndex++
+
+						// Have a full frame
+						if frameIndex >= s.fftFrameSize {
+							frameIndex = s.latency
+
+							// Interleave real / imag and do windowing
+							for k := 0; k < s.fftFrameSize; k++ {
+								s.workBuffer[2*k] = s.frame[k] * s.window[k]
+								s.workBuffer[(2*k)+1] = 0.0
+							}
+
+							// Do transform
+							stft(s.workBuffer, s.fftFrameSize, -1)
+
+							// Analysis
+							for k := 0; k <= s.fftFrameSize/2; k++ {
+								// De-interleave
+								real := s.workBuffer[2*k]
+								imag := s.workBuffer[(2*k)+1]
+
+								// Compute magnitude and phase
+								magn := 2 * math.Sqrt(real*real+imag*imag)
+								s.magnitudes[k] = magn
+
+								phase := math.Atan2(imag, real)
+
+								// Compute phase difference
+								diff := phase - s.lastPhase[k]
+								s.lastPhase[k] = phase
+
+								// Subtract expected phase difference
+								diff -= float64(k) * s.expected
+
+								// Map deltaphase to +/- π
+								deltaPhase := int(diff / math.Pi)
+								if deltaPhase >= 0 {
+									deltaPhase += deltaPhase & 1
+								} else {
+									deltaPhase -= deltaPhase & 1
+								}
+								diff -= math.Pi * float64(deltaPhase)
+
+								// Get deviation from bin freq
+								diff *= float64(s.oversampling) / (math.Pi * 2.0)
+
+								// Compute k-th partials freq
+								diff = (float64(k) + diff) * freqPerBin
+
+								// Store magnitude and frequency
+								s.magnitudes[k] = magn
+								s.frequencies[k] = diff
+							}
+
+							// Do the actual pitch shifting
+							for k := 0; k < s.fftFrameSize; k++ {
+								s.synthMagnitudes[k] = 0.0
+								s.synthFrequencies[k] = 0.0
+							}
+							for k := 0; k < s.fftFrameSize/2; k++ {
+								l := int(float64(k) * ratio)
+								if l < s.fftFrameSize/2 {
+									s.synthMagnitudes[l] += s.magnitudes[k]
+									s.synthFrequencies[l] = s.frequencies[k] * ratio
+								}
+							}
+
+							// Synthesis
+							for k := 0; k <= s.fftFrameSize/2; k++ {
+								// Get magnitude and true freq
+								magn := s.synthMagnitudes[k]
+								tmp := s.synthFrequencies[k]
+								// Subtract bin mid freq
+								tmp -= float64(k) * freqPerBin
+								// Get bin deviation from freq deviation
+								tmp /= freqPerBin
+								// Include oversampling
+								tmp *= 2 * math.Pi / float64(s.oversampling)
+								// Add overlap phase advance
+								tmp += float64(k) * s.expected
+								// Accumulate delta phase
+								s.sumPhase[k] += tmp
+								// Re-interleave real and imag
+								s.workBuffer[2*k] = magn * math.Cos(s.sumPhase[k])
+								s.workBuffer[(2*k)+1] = magn * math.Sin(s.sumPhase[k])
+							}
+
+							// Zero negative frequencies
+							for k := s.fftFrameSize + 2; k < 2*s.fftFrameSize; k++ {
+								s.workBuffer[k] = 0.0
+							}
+
+							// Inverse STFT
+							stft(s.workBuffer, s.fftFrameSize, 1)
+
+							// Windowing and add to output accumulator
+							for k := 0; k < s.fftFrameSize; k++ {
+								s.outAcc[k] += s.windowFactors[k] * s.workBuffer[2*k]
+							}
+							for k := 0; k < s.step; k++ {
+								s.stack[k] = s.outAcc[k]
+							}
+
+							// Shift output accumulator and buffer
+							for k := 0; k < s.fftFrameSize; k++ {
+								s.outAcc[k] = s.outAcc[k+s.step]
+							}
+							for k := 0; k < s.latency; k++ {
+								s.frame[k] = s.frame[k+s.step]
+							}
+						}
+					}
+					// Re-interleave and convert to bytes
+					for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * 2) {
+						// Apply volume scaling during conversion
+						setInt16_f64(s.out, i, f64in[i/int(byteDepth*2)]*s.volume)
+					}
+				}
+			default:
+				continue
+			}
 		}
 	}
 }
