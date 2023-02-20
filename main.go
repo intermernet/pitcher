@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 
@@ -34,6 +35,18 @@ func main() {
 	// Flag sanity checks
 	if *shift < -12 || *shift > 12 {
 		log.Fatal("\"shift\" flag must be between -12 and 12 inclusive")
+	}
+	if *frameSize == 0 || math.Ceil(math.Log2(float64(*frameSize))) != math.Floor(math.Log2(float64(*frameSize))) {
+		log.Fatal("\"framesize\" must be a power of 2")
+	}
+	if *overSampling == 0 || math.Ceil(math.Log2(float64(*overSampling))) != math.Floor(math.Log2(float64(*overSampling))) {
+		log.Fatal("\"oversampling\" must be a power of 2")
+	}
+	if *sampleRate <= 0 {
+		log.Fatal("\"samplerate\" must be a positive integer")
+	}
+	if *periods <= 0 {
+		log.Fatal("\"periods\" must be a positive integer")
 	}
 
 	// pprof server
