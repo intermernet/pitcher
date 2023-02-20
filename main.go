@@ -25,11 +25,17 @@ func main() {
 
 	guiOn := flag.Bool("gui", false, "Display GUI")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
+	frameSize := flag.Int("framesize", 2048, "FFT framesize. Must be a power of 2")
+	overSampling := flag.Int("oversampling", 32, "Pith shift oversampling. Must be a power of 2")
+	sampleRate := flag.Int("samplerate", 44100, "Audio Sample Rate")
+	periods := flag.Int("periods", 3, "Sampling periods. A period is ~ Audio Sample Rate / 100")
 	flag.Parse()
 
+	// Flag sanity checks
 	if *shift < -12 || *shift > 12 {
 		log.Fatal("\"shift\" flag must be between -12 and 12 inclusive")
 	}
+
 	// pprof server
 	go func() {
 		log.Println(http.ListenAndServe("localhost:9999", nil))
@@ -49,7 +55,8 @@ func main() {
 		ctx.Free()
 	}()
 
-	sampleRate := 48000.0 // TODO(mike): This is a horrible hack!
+	//sampleRate := 44100.0 // TODO(mike): This is a horrible hack!
+	//periods := 4
 	channels := 2
 	format := malgo.FormatS16
 	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
@@ -59,16 +66,16 @@ func main() {
 	deviceConfig.Capture.Channels = uint32(channels)
 	deviceConfig.Playback.Format = format
 	deviceConfig.Playback.Channels = uint32(channels)
-	deviceConfig.SampleRate = uint32(sampleRate)
+	deviceConfig.SampleRate = uint32(*sampleRate)
 
-	deviceConfig.Periods = 3
+	deviceConfig.Periods = uint32(*periods)
 
 	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
 	deviceConfig.Alsa.NoMMap = 1
 	deviceConfig.Wasapi.NoAutoConvertSRC = 1
 
 	// Seems like the sweetspot for quality, but could be due to bugs elsewhere
-	s := newShifter(1024, 32, sampleRate, bitDepth, channels)
+	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels)
 
 	// Init GUI
 	if *guiOn {

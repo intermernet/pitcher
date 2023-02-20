@@ -29,6 +29,8 @@
 package main
 
 import (
+	"bytes"
+	"log"
 	"math"
 )
 
@@ -56,8 +58,9 @@ type shifter struct {
 
 	bytesPerFrame int
 	// buffer channels
-	record, play chan byte
+	record, play *bytes.Buffer
 
+	do   chan bool
 	quit chan bool
 }
 
@@ -99,25 +102,31 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	s.data = make([]byte, s.bytesPerFrame)
 	s.out = make([]byte, s.bytesPerFrame)
 
-	s.record = make(chan byte, s.bytesPerFrame)
-	s.play = make(chan byte, s.bytesPerFrame)
+	s.record = new(bytes.Buffer)
+	s.play = new(bytes.Buffer)
 
+	s.do = make(chan bool)
 	s.quit = make(chan bool)
 
 	return s
 }
 
 func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32) {
-	for f := 0; f < int(framecount); f++ {
-		s.record <- pInputSamples[f]
+	_, err := s.record.Write(pInputSamples)
+	if err != nil {
+		log.Printf("Error writing to s.record: %q\n", err)
+	}
+	if s.record.Len() >= s.bytesPerFrame {
+		s.do <- true
 	}
 	//fmt.Println("sent samples...")
-	if len(s.play) >= int(framecount) {
-		for f := 0; f < int(framecount); f++ {
-			pOutputSample[f] = <-s.play
+	if s.play.Len() >= int(framecount) {
+		_, err = s.play.Read(pOutputSample)
+		if err != nil {
+			log.Printf("Error reading from s.play: %q\n", err)
 		}
-		//fmt.Println("got samples...")
 	}
+	//fmt.Println("got samples...")
 }
 
 func (s *shifter) shift() {
@@ -128,14 +137,20 @@ func (s *shifter) shift() {
 		select {
 		case <-s.quit:
 			return
-		default:
+		case <-s.do:
 			switch {
-			case len(s.record) >= s.bytesPerFrame:
-				for f := 0; f < s.bytesPerFrame; f++ {
-					s.data[f] = <-s.record
+			case s.record.Len() >= s.bytesPerFrame:
+				if s.record.Len() > s.bytesPerFrame {
+					// Drop excess bytes. This will cause glitches!
+					s.record.Next(s.record.Len() - s.bytesPerFrame)
 				}
-				for f := 0; f < s.bytesPerFrame; f++ {
-					s.play <- s.out[f]
+				_, err := s.record.Read(s.data)
+				if err != nil {
+					log.Printf("Error reading from s.record: %q\n", err)
+				}
+				_, err = s.play.Write(s.out)
+				if err != nil {
+					log.Printf("Error writing to s.play: %q\n", err)
 				}
 
 				bitDepth := s.bitDepth
