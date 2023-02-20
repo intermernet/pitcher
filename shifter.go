@@ -55,11 +55,11 @@ type shifter struct {
 	data, out []byte
 	// Output volume
 	volume float64
-
+	// Number of bytes per FFT frame
 	bytesPerFrame int
-	// buffer channels
+	// Byte buffers for hardware I/O
 	record, play *bytes.Buffer
-
+	// Channels for synchronization
 	do   chan bool
 	quit chan bool
 }
@@ -91,6 +91,7 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	s.windowFactors = make([]float64, fftFrameSize)
 	t := 0.0
 	for i := 0; i < fftFrameSize; i++ {
+		// Hanning window
 		w := -0.5*math.Cos(t) + 0.5
 		s.window[i] = w
 		s.windowFactors[i] = w * (2.0 / float64(fftFrameSize*oversampling))
@@ -119,20 +120,15 @@ func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32
 	if s.record.Len() >= s.bytesPerFrame {
 		s.do <- true
 	}
-	//fmt.Println("sent samples...")
 	if s.play.Len() >= int(framecount) {
 		_, err = s.play.Read(pOutputSample)
 		if err != nil {
 			log.Printf("Error reading from s.play: %q\n", err)
 		}
 	}
-	//fmt.Println("got samples...")
 }
 
 func (s *shifter) shift() {
-	// Map buffers
-	// s.data = pInputSamples
-	// s.out = pOutputSample
 	for {
 		select {
 		case <-s.quit:
@@ -152,11 +148,11 @@ func (s *shifter) shift() {
 				if err != nil {
 					log.Printf("Error writing to s.play: %q\n", err)
 				}
-
-				bitDepth := s.bitDepth
-				byteDepth := bitDepth / 8
-
+				// Bytes per sample
+				byteDepth := s.bitDepth / 8
+				// Number of frequencies per bin
 				freqPerBin := float64(s.sampleRate) / float64(s.fftFrameSize)
+				// Offset the frame index to compensate for the latency
 				frameIndex := s.latency
 
 				// Calculate semitones to pitch shift
@@ -164,7 +160,7 @@ func (s *shifter) shift() {
 
 				// De-interleave multi channel PCM into floats
 				for c := 0; c < int(s.channels); c++ {
-					f64in := bytesToF64(s.data, s.channels, bitDepth, c)
+					f64in := bytesToF64(s.data, s.channels, s.bitDepth, c)
 					f64out := f64in
 					// Process buffer
 					for i := 0; i < len(f64in); i++ {
@@ -182,7 +178,7 @@ func (s *shifter) shift() {
 								s.workBuffer[(2*k)+1] = 0.0
 							}
 
-							// Do transform
+							// Do STFT (Short Time Fourier Transform)
 							stft(s.workBuffer, s.fftFrameSize, -1)
 
 							// Analysis
@@ -283,9 +279,9 @@ func (s *shifter) shift() {
 						}
 					}
 					// Re-interleave and convert to bytes
-					for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * 2) {
+					for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * s.channels) {
 						// Apply volume scaling during conversion
-						setInt16_f64(s.out, i, f64in[i/int(byteDepth*2)]*s.volume)
+						setInt16_f64(s.out, i, f64in[i/int(byteDepth*s.channels)]*s.volume)
 					}
 				}
 			default:
