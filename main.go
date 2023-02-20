@@ -68,8 +68,6 @@ func main() {
 		ctx.Free()
 	}()
 
-	//sampleRate := 44100.0 // TODO(mike): This is a horrible hack!
-	//periods := 4
 	channels := 2
 	format := malgo.FormatS16
 	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
