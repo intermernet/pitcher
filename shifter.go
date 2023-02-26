@@ -60,8 +60,9 @@ type shifter struct {
 	// Byte buffers for hardware I/O
 	record, play *bytes.Buffer
 	// Channels for synchronization
-	do   chan bool
-	quit chan bool
+	do         chan bool
+	quit       chan bool
+	endProcess chan bool
 }
 
 func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int) *shifter {
@@ -108,22 +109,28 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 
 	s.do = make(chan bool)
 	s.quit = make(chan bool)
+	s.endProcess = make(chan bool)
 
 	return s
 }
 
 func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32) {
-	_, err := s.record.Write(pInputSamples)
-	if err != nil {
-		log.Printf("Error writing to s.record: %q\n", err)
-	}
-	if s.record.Len() >= s.bytesPerFrame {
-		s.do <- true
-	}
-	if s.play.Len() >= int(framecount) {
-		_, err = s.play.Read(pOutputSample)
+	select {
+	case <-s.endProcess:
+		return
+	default:
+		_, err := s.record.Write(pInputSamples)
 		if err != nil {
-			log.Printf("Error reading from s.play: %q\n", err)
+			log.Printf("Error writing to s.record: %q\n", err)
+		}
+		if s.record.Len() >= s.bytesPerFrame {
+			s.do <- true
+		}
+		if s.play.Len() >= int(framecount) {
+			_, err = s.play.Read(pOutputSample)
+			if err != nil {
+				log.Printf("Error reading from s.play: %q\n", err)
+			}
 		}
 	}
 }
@@ -132,6 +139,7 @@ func (s *shifter) shift() {
 	for {
 		select {
 		case <-s.quit:
+			s.endProcess <- true
 			return
 		case <-s.do:
 			switch {
