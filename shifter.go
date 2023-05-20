@@ -30,6 +30,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"log"
 	"math"
 )
@@ -168,7 +169,7 @@ func (s *shifter) shift() {
 
 				// De-interleave multi channel PCM into floats
 				for c := 0; c < int(s.channels); c++ {
-					f64in := bytesToF64(s.data, s.channels, s.bitDepth, c)
+					f64in := bytesToFloat64(s.data, s.channels, s.bitDepth, c)
 					f64out := f64in
 					// Process buffer
 					for i := 0; i < len(f64in); i++ {
@@ -289,7 +290,7 @@ func (s *shifter) shift() {
 					// Re-interleave and convert to bytes
 					for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * s.channels) {
 						// Apply volume scaling during conversion
-						setInt16_f64(s.out, i, f64in[i/int(byteDepth*s.channels)]*s.volume)
+						float64ToFloat32Bytes(s.out, i, f64in[i/int(byteDepth*s.channels)]*s.volume)
 					}
 				}
 			default:
@@ -350,41 +351,26 @@ func stft(data []float64, fftFrameSize, sign int) {
 
 // Helper functions to convert PCM samples to and from float64
 
-func bytesToF64(data []byte, channels, bitRate uint16, channel int) []float64 {
+func bytesToFloat64(data []byte, channels, bitRate uint16, channel int) []float64 {
 	byteDepth := bitRate / 8
 	out := make([]float64, (len(data)/int(byteDepth*channels))+1)
 	for i := channel * int(byteDepth); i < len(data); i += int(byteDepth * channels) {
-		out[i/int(byteDepth*channels)] = getFloat64(data, i, byteDepth)
+		out[i/int(byteDepth*channels)] = float64(bytesToFloat32(data, i))
 	}
 	return out
 }
 
-func setInt16(d []byte, i int, in int64) {
-	for j := 0; j < 2; j++ {
-		d[i+j] = byte(in & 255)
-		in >>= 8
-	}
+func bytesToFloat32(bytes []byte, i int) float32 {
+	bits := binary.LittleEndian.Uint32(bytes[i : i+4])
+	float := math.Float32frombits(bits)
+	return float
 }
 
-func getInt16(d []byte, i int) (out int16) {
-	var shift uint16
-	for j := 0; j < 2; j++ {
-		out += int16(d[i+j]) << shift
-		shift += 8
+func float64ToFloat32Bytes(d []byte, i int, float float64) {
+	bits := math.Float32bits(float32(float))
+	bytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(bytes, bits)
+	for n, b := range bytes {
+		d[i+n] = b
 	}
-	return
-}
-
-func getFloat64(d []byte, i int, byteDepth uint16) float64 {
-	switch byteDepth {
-	case 1:
-		return float64(int8(d[i])) / 128.0
-	case 2:
-		return float64(getInt16(d, i)) / 32768.0
-	}
-	return 0.0
-}
-
-func setInt16_f64(d []byte, i int, in float64) {
-	setInt16(d, i, int64(in*32768))
 }

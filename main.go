@@ -69,7 +69,7 @@ func main() {
 	}()
 
 	channels := 2
-	format := malgo.FormatS16
+	format := malgo.FormatF32
 	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
 	deviceConfig := malgo.DefaultDeviceConfig(malgo.Duplex)
 	deviceConfig.PerformanceProfile = malgo.LowLatency
