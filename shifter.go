@@ -33,6 +33,8 @@ import (
 	"encoding/binary"
 	"log"
 	"math"
+
+	"github.com/runningwild/go-fftw/fftw"
 )
 
 type shifter struct {
@@ -45,7 +47,8 @@ type shifter struct {
 	step                              int
 	latency                           int
 	stack, frame                      []float64
-	workBuffer                        []float64
+	fftwdata                          *fftw.Array
+	forward, inverse                  *fftw.Plan
 	magnitudes, frequencies           []float64
 	synthMagnitudes, synthFrequencies []float64
 	lastPhase, sumPhase               []float64
@@ -77,7 +80,9 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	s.step = fftFrameSize / oversampling
 	s.latency = fftFrameSize - s.step
 	s.stack = make([]float64, fftFrameSize)
-	s.workBuffer = make([]float64, 2*fftFrameSize)
+	s.fftwdata = fftw.NewArray(fftFrameSize)
+	s.forward = fftw.NewPlan(s.fftwdata, s.fftwdata, fftw.Forward, fftw.Estimate)
+	s.inverse = fftw.NewPlan(s.fftwdata, s.fftwdata, fftw.Backward, fftw.Estimate)
 	s.magnitudes = make([]float64, fftFrameSize)
 	s.frequencies = make([]float64, fftFrameSize)
 	s.synthMagnitudes = make([]float64, fftFrameSize)
@@ -183,18 +188,17 @@ func (s *shifter) shift() {
 
 							// Interleave real / imag and do windowing
 							for k := 0; k < s.fftFrameSize; k++ {
-								s.workBuffer[2*k] = s.frame[k] * s.window[k]
-								s.workBuffer[(2*k)+1] = 0.0
+								s.fftwdata.Set(k, complex(s.frame[k]*s.window[k], 0.0))
 							}
 
 							// Do STFT (Short Time Fourier Transform)
-							stft(s.workBuffer, s.fftFrameSize, -1)
+							s.forward.Execute()
 
 							// Analysis
 							for k := 0; k <= s.fftFrameSize/2; k++ {
 								// De-interleave
-								real := s.workBuffer[2*k]
-								imag := s.workBuffer[(2*k)+1]
+								real := real(s.fftwdata.At(k))
+								imag := imag(s.fftwdata.At(k))
 
 								// Compute magnitude and phase
 								magn := 2 * math.Sqrt(real*real+imag*imag)
@@ -258,21 +262,21 @@ func (s *shifter) shift() {
 								// Accumulate delta phase
 								s.sumPhase[k] += tmp
 								// Re-interleave real and imag
-								s.workBuffer[2*k] = magn * math.Cos(s.sumPhase[k])
-								s.workBuffer[(2*k)+1] = magn * math.Sin(s.sumPhase[k])
+								s.fftwdata.Set(k, complex(magn*math.Cos(s.sumPhase[k]), magn*math.Sin(s.sumPhase[k])))
 							}
 
 							// Zero negative frequencies
-							for k := s.fftFrameSize + 2; k < 2*s.fftFrameSize; k++ {
-								s.workBuffer[k] = 0.0
+							for k := s.fftFrameSize + 1; k < s.fftFrameSize; k++ {
+								s.fftwdata.Set(k, complex(0.0, 0.0))
+
 							}
 
 							// Inverse STFT
-							stft(s.workBuffer, s.fftFrameSize, 1)
+							s.inverse.Execute()
 
 							// Windowing and add to output accumulator
 							for k := 0; k < s.fftFrameSize; k++ {
-								s.outAcc[k] += s.windowFactors[k] * s.workBuffer[2*k]
+								s.outAcc[k] += s.windowFactors[k] * real(s.fftwdata.At(k))
 							}
 							for k := 0; k < s.step; k++ {
 								s.stack[k] = s.outAcc[k]
@@ -296,55 +300,6 @@ func (s *shifter) shift() {
 			default:
 				continue
 			}
-		}
-	}
-}
-
-// stft : FFT routine, (C)1996 S.M.Bernsee. Sign = -1 is FFT, 1 is iFFT (inverse)
-// Fills fftBuffer[0...2*fftFrameSize-1] with the Fourier transform of the
-// time domain data in fftBuffer[0...2*fftFrameSize-1]. The FFT array takes
-// and returns the cosine and sine parts in an interleaved manner, ie.
-// fftBuffer[0] = cosPart[0], fftBuffer[1] = sinPart[0], asf. fftFrameSize
-// must be a power of 2. It expects a complex input signal (see footnote 2),
-// ie. when working with 'common' audio signals our input signal has to be
-// passed as {in[0],0.,in[1],0.,in[2],0.,...} asf. In that case, the transform
-// of the frequencies of interest is in fftBuffer[0...fftFrameSize].
-func stft(data []float64, fftFrameSize, sign int) {
-	for i := 2; i < 2*(fftFrameSize-2); i += 2 {
-		j := 0
-		for bitm := 2; bitm < 2*fftFrameSize; bitm <<= 1 {
-			if (i & bitm) != 0 {
-				j++
-			}
-			j <<= 1
-		}
-		if i < j {
-			data[j], data[i] = data[i], data[j]
-			data[j+1], data[i+1] = data[i+1], data[j+1]
-		}
-	}
-	max := int(math.Log(float64(fftFrameSize))/math.Log(2) + .5)
-	le := 2
-	for k := 0; k < max; k++ {
-		le <<= 1
-		le2 := le >> 1
-		ur := 1.0
-		ui := 0.0
-		arg := math.Pi / float64(le2>>1)
-		wr := math.Cos(arg)
-		wi := float64(sign) * math.Sin(arg)
-		for j := 0; j < le2; j += 2 {
-			for i := j; i < 2*fftFrameSize; i += le {
-				tr := data[i+le2]*ur - data[i+le2+1]*ui
-				ti := data[i+le2]*ui + data[i+le2+1]*ur
-				data[i+le2] = data[i] - tr
-				data[i+le2+1] = data[i+1] - ti
-				data[i] += tr
-				data[i+1] += ti
-			}
-			tr := ur*wr - ui*wi
-			ui = ur*wi + ui*wr
-			ur = tr
 		}
 	}
 }

@@ -24,6 +24,7 @@ var shift *int
 
 func main() {
 
+	guiOn := flag.Bool("gui", false, "Display GUI")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
 	frameSize := flag.Int("framesize", 2048, "FFT framesize. Must be a power of 2")
 	overSampling := flag.Int("oversampling", 32, "Pith shift oversampling. Must be a power of 2")
@@ -92,6 +93,13 @@ func main() {
 	// Seems like the sweetspot for quality, but could be due to bugs elsewhere
 	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels)
 
+	defer s.forward.Destroy()
+	defer s.inverse.Destroy()
+
+	// Init GUI
+	if *guiOn {
+		window = gui(s)
+	}
 	//start pitch shifter in goroutine
 	go s.shift()
 
@@ -117,11 +125,18 @@ func main() {
 		}
 	}()
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	fmt.Println("Press Ctrl-C / Cmd-. to exit")
-	<-c
-	s.quit <- true
-	fmt.Println("Exiting...")
-	os.Exit(0)
+	// Start GUI
+	switch *guiOn {
+	case true:
+		window.ShowAndRun()
+		s.quit <- true
+	default:
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		fmt.Println("Press Ctrl-C / Cmd-. to exit")
+		<-c
+		s.quit <- true
+		fmt.Println("Exiting...")
+		os.Exit(0)
+	}
 }
