@@ -1,6 +1,6 @@
 /****************************************************************************
 *
-* COPYRIGHT 2023 Mike Hughes <mike <AT> mikehughes <DOT> info
+* COPYRIGHT 2025 Mike Hughes <mike <AT> mikehughes <DOT> info
 *
 ****************************************************************************/
 

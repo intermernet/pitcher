@@ -1,10 +1,10 @@
 /****************************************************************************
 *
-* COPYRIGHT 2023 Mike Hughes <mike <AT> mikehughes <DOT> info
+* COPYRIGHT 2025 Mike Hughes <mike <AT> mikehughes <DOT> info
 *
 *****************************************************************************
 *
-* FFT and pitch shift algorithm based on
+* pitch shift algorithm based on
 * http://blogs.zynaptiq.com/bernsee/pitch-shifting-using-the-ft/
 *
 * COPYRIGHT 1999-2015 Stephan M. Bernsee <s.bernsee [AT] zynaptiq [DOT] com>
@@ -24,6 +24,8 @@
 *
 * COPYRIGHT 2017 Patrick Stephen <patrick.d.stephen [AT] gmail [DOT] com>
 *
+*****************************************************************************
+* Uses the go-fftw library by runningwild
 *****************************************************************************/
 
 package main
