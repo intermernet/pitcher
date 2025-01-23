@@ -14,8 +14,8 @@ import (
 	"os"
 	"os/signal"
 
-	// "net/http"
-	// _ "net/http/pprof"
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/gen2brain/malgo"
 )
@@ -24,7 +24,6 @@ var shift *int
 
 func main() {
 
-	guiOn := flag.Bool("gui", false, "Display GUI")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
 	frameSize := flag.Int("framesize", 2048, "FFT framesize. Must be a power of 2")
 	overSampling := flag.Int("oversampling", 32, "Pith shift oversampling. Must be a power of 2")
@@ -50,9 +49,9 @@ func main() {
 	}
 
 	// pprof server
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:9999", nil))
-	// }()
+	go func() {
+		log.Println(http.ListenAndServe("localhost:9999", nil))
+	}()
 
 	// Setup audio stuff
 	//ctx, err := malgo.InitContext([]malgo.Backend{malgo.BackendDsound}, malgo.ContextConfig{}, func(message string) {
@@ -83,15 +82,15 @@ func main() {
 
 	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
 	deviceConfig.Alsa.NoMMap = 1
+	deviceConfig.NoClip = 1
+	deviceConfig.NoPreSilencedOutputBuffer = 0
 	deviceConfig.Wasapi.NoAutoConvertSRC = 1
+	deviceConfig.Wasapi.NoAutoStreamRouting = 0
+	deviceConfig.Wasapi.NoDefaultQualitySRC = 0
+	deviceConfig.Wasapi.NoHardwareOffloading = 0
 
 	// Seems like the sweetspot for quality, but could be due to bugs elsewhere
 	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels)
-
-	// Init GUI
-	if *guiOn {
-		window = gui(s)
-	}
 
 	//start pitch shifter in goroutine
 	go s.shift()
@@ -118,18 +117,11 @@ func main() {
 		}
 	}()
 
-	// Start GUI
-	switch *guiOn {
-	case true:
-		window.ShowAndRun()
-		s.quit <- true
-	default:
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt)
-		fmt.Println("Press Ctrl-C / Cmd-. to exit")
-		<-c
-		s.quit <- true
-		fmt.Println("Exiting...")
-		os.Exit(0)
-	}
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	fmt.Println("Press Ctrl-C / Cmd-. to exit")
+	<-c
+	s.quit <- true
+	fmt.Println("Exiting...")
+	os.Exit(0)
 }
