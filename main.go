@@ -90,7 +90,6 @@ func main() {
 	deviceConfig.Wasapi.NoDefaultQualitySRC = 0
 	deviceConfig.Wasapi.NoHardwareOffloading = 0
 
-	// Seems like the sweetspot for quality, but could be due to bugs elsewhere
 	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels)
 
 	defer s.forward.Destroy()

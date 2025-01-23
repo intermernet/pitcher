@@ -268,7 +268,6 @@ func (s *shifter) shift() {
 							// Zero negative frequencies
 							for k := s.fftFrameSize + 1; k < s.fftFrameSize; k++ {
 								s.fftwdata.Set(k, complex(0.0, 0.0))
-
 							}
 
 							// Inverse STFT
