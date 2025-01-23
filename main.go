@@ -25,11 +25,12 @@ var shift *int
 func main() {
 
 	guiOn := flag.Bool("gui", false, "Display GUI")
+	verbose := flag.Bool("verbose", false, "Verbose output")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
-	frameSize := flag.Int("framesize", 2048, "FFT framesize. Must be a power of 2")
+	frameSize := flag.Int("framesize", 512, "FFT framesize. Must be a power of 2")
 	overSampling := flag.Int("oversampling", 32, "Pith shift oversampling. Must be a power of 2")
-	sampleRate := flag.Int("samplerate", 44100, "Audio Sample Rate")
-	periods := flag.Int("periods", 3, "Sampling periods. A period is ~ Audio Sample Rate / 100")
+	sampleRate := flag.Int("samplerate", 48000, "Audio Sample Rate")
+	periods := flag.Int("periods", 1, "Sampling periods. A period is ~ Audio Sample Rate / 100")
 	flag.Parse()
 
 	// Flag sanity checks
@@ -54,11 +55,19 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:9999", nil))
 	}()
 
+	// Setup logging
+	logProc := func(message string) {
+		return
+	}
+	if *verbose {
+		logProc = func(message string) {
+			fmt.Printf("LOG: %v", message)
+		}
+	}
+
 	// Setup audio stuff
 	//ctx, err := malgo.InitContext([]malgo.Backend{malgo.BackendDsound}, malgo.ContextConfig{}, func(message string) {
-	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
-		fmt.Printf("LOG: %v", message)
-	})
+	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, logProc)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

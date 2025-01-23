@@ -152,10 +152,10 @@ func (s *shifter) shift() {
 		case <-s.do:
 			switch {
 			case s.record.Len() >= s.bytesPerFrame:
-				if s.record.Len() > s.bytesPerFrame {
-					// Drop excess bytes. This will cause glitches!
-					s.record.Next(s.record.Len() - s.bytesPerFrame)
-				}
+				// if s.record.Len() > s.bytesPerFrame {
+				// 	// Drop excess bytes. This will cause glitches!
+				// 	s.record.Next(s.record.Len() - s.bytesPerFrame)
+				// }
 				_, err := s.record.Read(s.data)
 				if err != nil {
 					log.Printf("Error reading from s.record: %q\n", err)
