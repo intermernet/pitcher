@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 
-	"net/http"
 	_ "net/http/pprof"
 
 	"github.com/gen2brain/malgo"
@@ -56,9 +55,9 @@ func main() {
 	}
 
 	// pprof server
-	go func() {
-		log.Println(http.ListenAndServe("localhost:9999", nil))
-	}()
+	// go func() {
+	// 	log.Println(http.ListenAndServe("localhost:9999", nil))
+	// }()
 
 	// Setup logging
 	logProc := func(message string) {
