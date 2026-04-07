@@ -31,9 +31,7 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
-	"log"
 	"math"
 
 	"github.com/runningwild/go-fftw/fftw"
@@ -46,32 +44,30 @@ type shifter struct {
 	sampleRate                        float64
 	bitDepth                          uint16
 	channels                          uint16
+	periods                           int
+	bufferSize                        int
+	exclusive                         bool
 	step                              int
 	latency                           int
-	stack, frame                      []float64
+	freqPerBin                        float64
+	frameIndex                        []int
+	stack, frame                      [][]float64
 	fftwdata                          *fftw.Array
 	forward, inverse                  *fftw.Plan
 	magnitudes, frequencies           []float64
 	synthMagnitudes, synthFrequencies []float64
-	lastPhase, sumPhase               []float64
-	outAcc                            []float64
+	lastPhase, sumPhase               [][]float64
+	outAcc                            [][]float64
 	expected                          float64
 	window, windowFactors             []float64
-	// Buffers
-	data, out []byte
+	// Temporary SIMD working buffers
+	reals, imags []float64
+	f64buf       []float64
 	// Output volume
 	volume float64
-	// Number of bytes per FFT frame
-	bytesPerFrame int
-	// Byte buffers for hardware I/O
-	record, play *bytes.Buffer
-	// Channels for synchronization
-	do         chan bool
-	quit       chan bool
-	endProcess chan bool
 }
 
-func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int) *shifter {
+func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth uint16, channels int, periods int, bufferSize int, exclusive bool) *shifter {
 	s := new(shifter)
 	s.pitchShift = float64(*shift)
 	s.fftFrameSize = fftFrameSize
@@ -79,9 +75,11 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	s.sampleRate = sampleRate
 	s.bitDepth = bitDepth
 	s.channels = uint16(channels)
+	s.periods = periods
+	s.bufferSize = bufferSize
+	s.exclusive = exclusive
 	s.step = fftFrameSize / oversampling
 	s.latency = fftFrameSize - s.step
-	s.stack = make([]float64, fftFrameSize)
 	s.fftwdata = fftw.NewArray(fftFrameSize)
 	s.forward = fftw.NewPlan(s.fftwdata, s.fftwdata, fftw.Forward, fftw.Estimate)
 	s.inverse = fftw.NewPlan(s.fftwdata, s.fftwdata, fftw.Backward, fftw.Estimate)
@@ -89,15 +87,30 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 	s.frequencies = make([]float64, fftFrameSize)
 	s.synthMagnitudes = make([]float64, fftFrameSize)
 	s.synthFrequencies = make([]float64, fftFrameSize)
-	s.lastPhase = make([]float64, fftFrameSize/2+1)
-	s.sumPhase = make([]float64, fftFrameSize/2+1)
-	s.outAcc = make([]float64, 2*fftFrameSize)
+	s.frameIndex = make([]int, channels)
+	s.stack = make([][]float64, channels)
+	s.frame = make([][]float64, channels)
+	s.lastPhase = make([][]float64, channels)
+	s.sumPhase = make([][]float64, channels)
+	s.outAcc = make([][]float64, channels)
+	for ch := 0; ch < channels; ch++ {
+		s.frameIndex[ch] = s.latency
+		s.stack[ch] = make([]float64, fftFrameSize)
+		s.frame[ch] = make([]float64, fftFrameSize)
+		s.lastPhase[ch] = make([]float64, fftFrameSize/2+1)
+		s.sumPhase[ch] = make([]float64, fftFrameSize/2+1)
+		s.outAcc[ch] = make([]float64, 2*fftFrameSize)
+	}
 	s.volume = 1.0
 
 	s.expected = 2 * math.Pi * float64(s.step) / float64(fftFrameSize)
+	s.freqPerBin = sampleRate / float64(fftFrameSize)
 
 	s.window = make([]float64, fftFrameSize)
 	s.windowFactors = make([]float64, fftFrameSize)
+	s.reals = make([]float64, fftFrameSize)
+	s.imags = make([]float64, fftFrameSize)
+	s.f64buf = make([]float64, max(fftFrameSize, 8192))
 	t := 0.0
 	for i := 0; i < fftFrameSize; i++ {
 		// Hanning window
@@ -107,226 +120,134 @@ func newShifter(fftFrameSize int, oversampling int, sampleRate float64, bitDepth
 		t += (math.Pi * 2.0) / float64(fftFrameSize)
 	}
 
-	s.frame = make([]float64, fftFrameSize)
-	s.bytesPerFrame = fftFrameSize * int(bitDepth) / 8 * channels
-	s.data = make([]byte, s.bytesPerFrame)
-	s.out = make([]byte, s.bytesPerFrame)
-
-	s.record = new(bytes.Buffer)
-	s.play = new(bytes.Buffer)
-
-	s.do = make(chan bool)
-	s.quit = make(chan bool)
-	s.endProcess = make(chan bool)
-
 	return s
 }
 
 func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32) {
-	select {
-	case <-s.endProcess:
-		return
-	default:
-		_, err := s.record.Write(pInputSamples)
-		if err != nil {
-			log.Printf("Error writing to s.record: %q\n", err)
-		}
-		if s.record.Len() >= s.bytesPerFrame {
-			s.do <- true
-		}
-		if s.play.Len() >= int(framecount) {
-			_, err = s.play.Read(pOutputSample)
-			if err != nil {
-				log.Printf("Error reading from s.play: %q\n", err)
-			}
-		}
-	}
+	s.processAudio(pOutputSample, pInputSamples)
 }
 
-func (s *shifter) shift() {
-	for {
-		select {
-		case <-s.quit:
-			s.endProcess <- true
-			return
-		case <-s.do:
-			switch {
-			case s.record.Len() >= s.bytesPerFrame:
-				// if s.record.Len() > s.bytesPerFrame {
-				// 	// Drop excess bytes. This will cause glitches!
-				// 	s.record.Next(s.record.Len() - s.bytesPerFrame)
-				// }
-				_, err := s.record.Read(s.data)
-				if err != nil {
-					log.Printf("Error reading from s.record: %q\n", err)
+func (s *shifter) processAudio(output, input []byte) {
+	byteDepth := s.bitDepth / 8
+	ratio := math.Exp2(s.pitchShift / 12.0)
+
+	for c := 0; c < int(s.channels); c++ {
+		numSamples := bytesToFloat64(s.f64buf, input, s.channels, s.bitDepth, c)
+		frameIndex := s.frameIndex[c]
+
+		for i := 0; i < numSamples; i++ {
+			s.frame[c][frameIndex] = s.f64buf[i]
+			s.f64buf[i] = s.stack[c][frameIndex-s.latency]
+			frameIndex++
+
+			if frameIndex >= s.fftFrameSize {
+				frameIndex = s.latency
+
+				// Windowing (SIMD multiply)
+				mulFloat64s(s.reals[:s.fftFrameSize], s.frame[c], s.window)
+				for k := 0; k < s.fftFrameSize; k++ {
+					s.fftwdata.Elems[k] = complex(s.reals[k], 0)
 				}
-				_, err = s.play.Write(s.out)
-				if err != nil {
-					log.Printf("Error writing to s.play: %q\n", err)
+
+				// STFT
+				s.forward.Execute()
+
+				// Analysis
+				halfPlus1 := s.fftFrameSize/2 + 1
+				for k := 0; k < halfPlus1; k++ {
+					cplx := s.fftwdata.Elems[k]
+					s.reals[k] = real(cplx)
+					s.imags[k] = imag(cplx)
 				}
-				// Bytes per sample
-				byteDepth := s.bitDepth / 8
-				// Number of frequencies per bin
-				freqPerBin := float64(s.sampleRate) / float64(s.fftFrameSize)
-				// Offset the frame index to compensate for the latency
-				frameIndex := s.latency
 
-				// Calculate semitones to pitch shift
-				ratio := math.Exp2(s.pitchShift / 12.0)
+				computeMagnitudes(s.magnitudes[:halfPlus1], s.reals[:halfPlus1], s.imags[:halfPlus1])
 
-				// De-interleave multi channel PCM into floats
-				for c := 0; c < int(s.channels); c++ {
-					f64in := bytesToFloat64(s.data, s.channels, s.bitDepth, c)
-					f64out := f64in
-					// Process buffer
-					for i := 0; i < len(f64in); i++ {
-						s.frame[frameIndex] = f64in[i]
-						f64out[i] = s.stack[frameIndex-s.latency]
-						frameIndex++
-
-						// Have a full frame
-						if frameIndex >= s.fftFrameSize {
-							frameIndex = s.latency
-
-							// Interleave real / imag and do windowing
-							for k := 0; k < s.fftFrameSize; k++ {
-								s.fftwdata.Set(k, complex(s.frame[k]*s.window[k], 0.0))
-							}
-
-							// Do STFT (Short Time Fourier Transform)
-							s.forward.Execute()
-
-							// Analysis
-							for k := 0; k <= s.fftFrameSize/2; k++ {
-								// De-interleave
-								real := real(s.fftwdata.At(k))
-								imag := imag(s.fftwdata.At(k))
-
-								// Compute magnitude and phase
-								magn := 2 * math.Sqrt(real*real+imag*imag)
-								s.magnitudes[k] = magn
-
-								phase := math.Atan2(imag, real)
-
-								// Compute phase difference
-								diff := phase - s.lastPhase[k]
-								s.lastPhase[k] = phase
-
-								// Subtract expected phase difference
-								diff -= float64(k) * s.expected
-
-								// Map deltaphase to +/- π
-								deltaPhase := int(diff / math.Pi)
-								if deltaPhase >= 0 {
-									deltaPhase += deltaPhase & 1
-								} else {
-									deltaPhase -= deltaPhase & 1
-								}
-								diff -= math.Pi * float64(deltaPhase)
-
-								// Get deviation from bin freq
-								diff *= float64(s.oversampling) / (math.Pi * 2.0)
-
-								// Compute k-th partials freq
-								diff = (float64(k) + diff) * freqPerBin
-
-								// Store magnitude and frequency
-								s.magnitudes[k] = magn
-								s.frequencies[k] = diff
-							}
-
-							// Do the actual pitch shifting
-							for k := 0; k < s.fftFrameSize; k++ {
-								s.synthMagnitudes[k] = 0.0
-								s.synthFrequencies[k] = 0.0
-							}
-							for k := 0; k < s.fftFrameSize/2; k++ {
-								l := int(float64(k) * ratio)
-								if l < s.fftFrameSize/2 {
-									s.synthMagnitudes[l] += s.magnitudes[k]
-									s.synthFrequencies[l] = s.frequencies[k] * ratio
-								}
-							}
-
-							// Synthesis
-							for k := 0; k <= s.fftFrameSize/2; k++ {
-								// Get magnitude and true freq
-								magn := s.synthMagnitudes[k]
-								tmp := s.synthFrequencies[k]
-								// Subtract bin mid freq
-								tmp -= float64(k) * freqPerBin
-								// Get bin deviation from freq deviation
-								tmp /= freqPerBin
-								// Include oversampling
-								tmp *= 2 * math.Pi / float64(s.oversampling)
-								// Add overlap phase advance
-								tmp += float64(k) * s.expected
-								// Accumulate delta phase
-								s.sumPhase[k] += tmp
-								// Re-interleave real and imag
-								s.fftwdata.Set(k, complex(magn*math.Cos(s.sumPhase[k]), magn*math.Sin(s.sumPhase[k])))
-							}
-
-							// Zero negative frequencies
-							for k := s.fftFrameSize + 1; k < s.fftFrameSize; k++ {
-								s.fftwdata.Set(k, complex(0.0, 0.0))
-							}
-
-							// Inverse STFT
-							s.inverse.Execute()
-
-							// Windowing and add to output accumulator
-							for k := 0; k < s.fftFrameSize; k++ {
-								s.outAcc[k] += s.windowFactors[k] * real(s.fftwdata.At(k))
-							}
-							for k := 0; k < s.step; k++ {
-								s.stack[k] = s.outAcc[k]
-							}
-
-							// Shift output accumulator and buffer
-							for k := 0; k < s.fftFrameSize; k++ {
-								s.outAcc[k] = s.outAcc[k+s.step]
-							}
-							for k := 0; k < s.latency; k++ {
-								s.frame[k] = s.frame[k+s.step]
-							}
-						}
+				for k := 0; k < halfPlus1; k++ {
+					phase := math.Atan2(s.imags[k], s.reals[k])
+					diff := phase - s.lastPhase[c][k]
+					s.lastPhase[c][k] = phase
+					diff -= float64(k) * s.expected
+					deltaPhase := int(diff / math.Pi)
+					if deltaPhase >= 0 {
+						deltaPhase += deltaPhase & 1
+					} else {
+						deltaPhase -= deltaPhase & 1
 					}
-					// Re-interleave and convert to bytes
-					for i := c * int(byteDepth); i < len(s.data); i += int(byteDepth * s.channels) {
-						// Apply volume scaling during conversion
-						float64ToFloat32Bytes(s.out, i, f64in[i/int(byteDepth*s.channels)]*s.volume)
+					diff -= math.Pi * float64(deltaPhase)
+					diff *= float64(s.oversampling) / (math.Pi * 2.0)
+					diff = (float64(k) + diff) * s.freqPerBin
+					s.frequencies[k] = diff
+				}
+
+				// Pitch shifting
+				zeroFloat64s(s.synthMagnitudes[:s.fftFrameSize])
+				zeroFloat64s(s.synthFrequencies[:s.fftFrameSize])
+				for k := 0; k < s.fftFrameSize/2; k++ {
+					l := int(float64(k) * ratio)
+					if l < s.fftFrameSize/2 {
+						s.synthMagnitudes[l] += s.magnitudes[k]
+						s.synthFrequencies[l] = s.frequencies[k] * ratio
 					}
 				}
-			default:
-				continue
+
+				// Synthesis
+				for k := 0; k <= s.fftFrameSize/2; k++ {
+					magn := s.synthMagnitudes[k]
+					tmp := s.synthFrequencies[k]
+					tmp -= float64(k) * s.freqPerBin
+					tmp /= s.freqPerBin
+					tmp *= 2 * math.Pi / float64(s.oversampling)
+					tmp += float64(k) * s.expected
+					s.sumPhase[c][k] += tmp
+					s.fftwdata.Set(k, complex(magn*math.Cos(s.sumPhase[c][k]), magn*math.Sin(s.sumPhase[c][k])))
+				}
+
+				// Zero negative frequencies
+				for k := s.fftFrameSize/2 + 1; k < s.fftFrameSize; k++ {
+					s.fftwdata.Elems[k] = 0
+				}
+
+				// Inverse STFT
+				s.inverse.Execute()
+
+				// Windowing and add to output accumulator (SIMD)
+				for k := 0; k < s.fftFrameSize; k++ {
+					s.reals[k] = real(s.fftwdata.Elems[k])
+				}
+				mulAddFloat64s(s.outAcc[c][:s.fftFrameSize], s.windowFactors, s.reals[:s.fftFrameSize])
+				copyFloat64s(s.stack[c][:s.step], s.outAcc[c][:s.step])
+
+				// Shift output accumulator and buffer (SIMD)
+				copyFloat64s(s.outAcc[c][:s.fftFrameSize], s.outAcc[c][s.step:s.step+s.fftFrameSize])
+				copyFloat64s(s.frame[c][:s.latency], s.frame[c][s.step:s.step+s.latency])
 			}
+		}
+
+		s.frameIndex[c] = frameIndex
+
+		// Re-interleave and convert to output bytes
+		stride := int(byteDepth * s.channels)
+		off := c * int(byteDepth)
+		for i := 0; i < numSamples; i++ {
+			float64ToFloat32Bytes(output, off, s.f64buf[i]*s.volume)
+			off += stride
 		}
 	}
 }
 
 // Helper functions to convert PCM samples to and from float64
 
-func bytesToFloat64(data []byte, channels, bitRate uint16, channel int) []float64 {
-	byteDepth := bitRate / 8
-	out := make([]float64, (len(data)/int(byteDepth*channels))+1)
-	for i := channel * int(byteDepth); i < len(data); i += int(byteDepth * channels) {
-		out[i/int(byteDepth*channels)] = float64(bytesToFloat32(data, i))
+func bytesToFloat64(dst []float64, data []byte, channels, bitRate uint16, channel int) int {
+	byteDepth := int(bitRate / 8)
+	stride := byteDepth * int(channels)
+	n := 0
+	for i := channel * byteDepth; i+byteDepth <= len(data); i += stride {
+		dst[n] = float64(math.Float32frombits(binary.LittleEndian.Uint32(data[i : i+4])))
+		n++
 	}
-	return out
-}
-
-func bytesToFloat32(bytes []byte, i int) float32 {
-	bits := binary.LittleEndian.Uint32(bytes[i : i+4])
-	float := math.Float32frombits(bits)
-	return float
+	return n
 }
 
 func float64ToFloat32Bytes(d []byte, i int, float float64) {
-	bits := math.Float32bits(float32(float))
-	bytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(bytes, bits)
-	for n, b := range bytes {
-		d[i+n] = b
-	}
+	binary.LittleEndian.PutUint32(d[i:i+4], math.Float32bits(float32(float)))
 }

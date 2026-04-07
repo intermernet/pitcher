@@ -7,6 +7,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"fyne.io/fyne/v2"
@@ -30,6 +31,16 @@ func gui(s *shifter) fyne.Window {
 	w := shiftApp.NewWindow("Pitcher")
 	w.Resize(fyne.NewSize(800, 200))
 
+	// Info text
+	excl := "No"
+	if s.exclusive {
+		excl = "Yes"
+	}
+	info := widget.NewLabel(fmt.Sprintf("Channels: %d, Frame size: %d, Oversampling: %d, Sample Rate: %d Hz", s.channels, s.fftFrameSize, s.oversampling, int(s.sampleRate)))
+	info.Wrapping = fyne.TextWrapWord
+	info2 := widget.NewLabel(fmt.Sprintf("Periods: %d, Buffer Size: %d frames, Exclusive Mode: %s", s.periods, s.bufferSize, excl))
+	info2.Wrapping = fyne.TextWrapWord
+
 	// Pitch slider
 	pitch := binding.BindFloat(&s.pitchShift)
 	pitch.Set(float64(*shift))
@@ -46,6 +57,8 @@ func gui(s *shifter) fyne.Window {
 
 	// Layout
 	w.SetContent(container.NewVBox(
+		info,
+		info2,
 		widget.NewLabelWithData(pitchText),
 		pitchSlider,
 		widget.NewLabelWithData(volText),

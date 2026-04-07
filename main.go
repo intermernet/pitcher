@@ -28,9 +28,11 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Verbose output")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
 	frameSize := flag.Int("framesize", 512, "FFT framesize. Must be a power of 2")
-	overSampling := flag.Int("oversampling", 32, "Pith shift oversampling. Must be a power of 2")
+	overSampling := flag.Int("oversampling", 4, "Pith shift oversampling. Must be a power of 2")
 	sampleRate := flag.Int("samplerate", 48000, "Audio Sample Rate")
-	periods := flag.Int("periods", 1, "Sampling periods. A period is ~ Audio Sample Rate / 100")
+	periods := flag.Int("periods", 2, "Audio buffer periods (2 = double-buffered)")
+	bufferSize := flag.Int("buffersize", 256, "Audio period size in frames (lower = less latency, may cause glitches)")
+	exclusive := flag.Bool("exclusive", false, "Use WASAPI exclusive mode (locks audio device, lower latency)")
 	flag.Parse()
 
 	// Flag sanity checks
@@ -49,6 +51,9 @@ func main() {
 	if *periods <= 0 {
 		log.Fatal("\"periods\" must be a positive integer")
 	}
+	if *bufferSize < 0 {
+		log.Fatal("\"buffersize\" must be non-negative")
+	}
 
 	// pprof server
 	go func() {
@@ -57,7 +62,7 @@ func main() {
 
 	// Setup logging
 	logProc := func(message string) {
-		return
+		// just return
 	}
 	if *verbose {
 		logProc = func(message string) {
@@ -88,9 +93,21 @@ func main() {
 	deviceConfig.Playback.Channels = uint32(channels)
 	deviceConfig.SampleRate = uint32(*sampleRate)
 
+	if *exclusive {
+		deviceConfig.Capture.ShareMode = malgo.Exclusive
+		deviceConfig.Playback.ShareMode = malgo.Exclusive
+	}
+
+	if *bufferSize > 0 {
+		deviceConfig.PeriodSizeInFrames = uint32(*bufferSize)
+	}
 	deviceConfig.Periods = uint32(*periods)
 
-	// Added because it seems like the common practice. Doesn't seem to make any difference on any platform.
+	// Allow variable-sized callbacks — avoids miniaudio's internal ring buffer
+	// that adds an extra period of latency.
+	deviceConfig.NoFixedSizedCallback = 1
+
+	// Platform-specific tuning
 	deviceConfig.Alsa.NoMMap = 1
 	deviceConfig.NoClip = 1
 	deviceConfig.NoPreSilencedOutputBuffer = 0
@@ -99,7 +116,7 @@ func main() {
 	deviceConfig.Wasapi.NoDefaultQualitySRC = 0
 	deviceConfig.Wasapi.NoHardwareOffloading = 0
 
-	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels)
+	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels, *periods, *bufferSize, *exclusive)
 
 	defer s.forward.Destroy()
 	defer s.inverse.Destroy()
@@ -108,9 +125,6 @@ func main() {
 	if *guiOn {
 		window = gui(s)
 	}
-	//start pitch shifter in goroutine
-	go s.shift()
-
 	// Pitch shift callback
 	deviceCallbacks := malgo.DeviceCallbacks{
 		Data: s.process,
@@ -137,13 +151,11 @@ func main() {
 	switch *guiOn {
 	case true:
 		window.ShowAndRun()
-		s.quit <- true
 	default:
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt)
 		fmt.Println("Press Ctrl-C / Cmd-. to exit")
 		<-c
-		s.quit <- true
 		fmt.Println("Exiting...")
 		os.Exit(0)
 	}

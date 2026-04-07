@@ -9,3 +9,20 @@ Uses [malgo](https://github.com/gen2brain/malgo) (Based on [Miniaudio](https://m
 [fyne](https://fyne.io/) for GUI
 
 [fftw](https://github.com/runningwild/go-fftw/) (Go bindings for [Fastest Fourier Transform in the West](https://www.fftw.org/)) for FFT functionality
+
+## SIMD Acceleration
+
+Requires Go 1.26+ and AVX CPU support. To build with SIMD-accelerated DSP loops:
+
+```sh
+GOEXPERIMENT=simd go build .
+```
+
+Without `GOEXPERIMENT=simd`, the project compiles and runs with scalar fallbacks.
+
+SIMD-optimized operations:
+- Windowing multiply
+- Magnitude computation (2 × √(re² + im²))
+- Array zeroing
+- Output accumulator (multiply-add)
+- Buffer copy and shift
