@@ -1,6 +1,6 @@
 //go:build goexperiment.simd
 
-package main
+package algos
 
 import (
 	"math"

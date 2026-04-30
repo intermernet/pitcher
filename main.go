@@ -17,6 +17,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gen2brain/malgo"
+	"github.com/intermernet/pitcher/algos"
 )
 
 var shift *int
@@ -26,13 +27,28 @@ func main() {
 	guiOn := flag.Bool("gui", false, "Display GUI")
 	verbose := flag.Bool("verbose", false, "Verbose output")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
-	frameSize := flag.Int("framesize", 512, "FFT framesize. Must be a power of 2")
-	overSampling := flag.Int("oversampling", 4, "Pith shift oversampling. Must be a power of 2")
+	algoFlag := flag.String("algo", algos.Default().ShortName, "Pitch-shifting algorithm. Options: "+algos.NamesString())
+	frameSize := flag.Int("framesize", 0, "FFT framesize. Must be a power of 2 (0 = use algorithm default)")
+	overSampling := flag.Int("oversampling", 0, "Pitch shift oversampling. Must be a power of 2 (0 = use algorithm default)")
 	sampleRate := flag.Int("samplerate", 48000, "Audio Sample Rate")
 	periods := flag.Int("periods", 2, "Audio buffer periods (2 = double-buffered)")
 	bufferSize := flag.Int("buffersize", 256, "Audio period size in frames (lower = less latency, may cause glitches)")
 	exclusive := flag.Bool("exclusive", false, "Use WASAPI exclusive mode (locks audio device, lower latency)")
 	flag.Parse()
+
+	// Resolve algorithm
+	algo, ok := algos.Find(*algoFlag)
+	if !ok {
+		log.Fatalf("unknown algorithm %q — valid options: %v", *algoFlag, algos.Names())
+	}
+
+	// Apply algorithm defaults when flags were not explicitly set
+	if *frameSize == 0 {
+		*frameSize = algo.Defaults.FrameSize
+	}
+	if *overSampling == 0 {
+		*overSampling = algo.Defaults.Oversampling
+	}
 
 	// Flag sanity checks
 	if *shift < -12 || *shift > 12 {
@@ -115,10 +131,9 @@ func main() {
 	deviceConfig.Wasapi.NoDefaultQualitySRC = 0
 	deviceConfig.Wasapi.NoHardwareOffloading = 0
 
-	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels, *periods, *bufferSize, *exclusive)
+	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels, *periods, *bufferSize, *exclusive, algo)
 
-	defer s.forward.Destroy()
-	defer s.inverse.Destroy()
+	defer s.Destroy()
 
 	// Init GUI
 	if *guiOn {
@@ -151,6 +166,21 @@ func main() {
 	case true:
 		window.ShowAndRun()
 	default:
+		exclStr := "No"
+		if *exclusive {
+			exclStr = "Yes"
+		}
+		latencyMs := float64(s.Latency) / s.SampleRate * 1000.0
+		fmt.Printf("\nPitcher — running parameters:\n")
+		fmt.Printf("  Algorithm:    %s (%s)\n", algo.FullName, algo.ShortName)
+		fmt.Printf("  Shift:        %+d semitones\n", *shift)
+		fmt.Printf("  Frame size:   %d\n", *frameSize)
+		fmt.Printf("  Oversampling: %d\n", *overSampling)
+		fmt.Printf("  Sample rate:  %d Hz\n", *sampleRate)
+		fmt.Printf("  Periods:      %d\n", *periods)
+		fmt.Printf("  Buffer size:  %d frames\n", *bufferSize)
+		fmt.Printf("  Exclusive:    %s\n", exclStr)
+		fmt.Printf("  Latency:      %.1f ms\n\n", latencyMs)
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt)
 		fmt.Println("Press Ctrl-C / Cmd-. to exit")

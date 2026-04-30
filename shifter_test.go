@@ -6,6 +6,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/intermernet/pitcher/algos"
 )
 
 const (
@@ -42,13 +44,13 @@ func generateSineFrame(freq float64, numSamples int, sampleRate float64, phase f
 // newTestShifter creates a shifter wired for testing (no audio hardware).
 func newTestShifter(semitones int) *shifter {
 	initShift(semitones)
-	return newShifter(testFFTFrameSize, testOversampling, testSampleRate, testBitDepth, testChannels, 2, testFFTFrameSize/4, false)
+	return newShifter(testFFTFrameSize, testOversampling, testSampleRate, testBitDepth, testChannels, 2, testFFTFrameSize/4, false, algos.Default())
 }
 
 func TestShiftPassthrough(t *testing.T) {
 	s := newTestShifter(0) // 0 semitones = passthrough
-	defer s.forward.Destroy()
-	defer s.inverse.Destroy()
+	defer s.Forward.Destroy()
+	defer s.Inverse.Destroy()
 
 	samplesPerFrame := testFFTFrameSize
 
@@ -69,7 +71,7 @@ func TestShiftPassthrough(t *testing.T) {
 	}
 
 	// Verify output is non-silent: at least some samples should be non-zero
-	bytesPerSample := int(s.bitDepth / 8)
+	bytesPerSample := int(s.BitDepth / 8)
 	nonZero := 0
 	totalSamples := len(allOutput) / bytesPerSample
 	for i := 0; i+bytesPerSample <= len(allOutput); i += bytesPerSample {
@@ -98,8 +100,8 @@ func TestShiftPassthrough(t *testing.T) {
 
 func TestShiftPitchUp(t *testing.T) {
 	s := newTestShifter(12) // +12 semitones = one octave up
-	defer s.forward.Destroy()
-	defer s.inverse.Destroy()
+	defer s.Forward.Destroy()
+	defer s.Inverse.Destroy()
 
 	samplesPerFrame := testFFTFrameSize
 
@@ -118,7 +120,7 @@ func TestShiftPitchUp(t *testing.T) {
 	}
 
 	// Basic sanity: output should exist and contain valid floats
-	bytesPerSample := int(s.bitDepth / 8)
+	bytesPerSample := int(s.BitDepth / 8)
 	for i := 0; i+bytesPerSample <= len(allOutput); i += bytesPerSample {
 		v := math.Float32frombits(binary.LittleEndian.Uint32(allOutput[i : i+bytesPerSample]))
 		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
@@ -170,8 +172,8 @@ func TestSineSweepGlitchDetection(t *testing.T) {
 	for _, semitones := range []int{0, 3, 7, 12, -12} {
 		t.Run(fmt.Sprintf("shift_%+d", semitones), func(t *testing.T) {
 			s := newTestShifter(semitones)
-			defer s.forward.Destroy()
-			defer s.inverse.Destroy()
+			defer s.Forward.Destroy()
+			defer s.Inverse.Destroy()
 
 			// Generate 2-second sine sweep 100 Hz → 8000 Hz
 			sweep := generateSineSweep(100, 8000, testSampleRate, 2.0, testChannels)
@@ -270,9 +272,9 @@ func BenchmarkShift(b *testing.B) {
 			name := fmt.Sprintf("fft%d_os%d", frameSize, oversampling)
 			b.Run(name, func(b *testing.B) {
 				initShift(0)
-				s := newShifter(frameSize, oversampling, testSampleRate, testBitDepth, testChannels, 2, frameSize/4, false)
-				defer s.forward.Destroy()
-				defer s.inverse.Destroy()
+				s := newShifter(frameSize, oversampling, testSampleRate, testBitDepth, testChannels, 2, frameSize/4, false, algos.Default())
+				defer s.Forward.Destroy()
+				defer s.Inverse.Destroy()
 
 				samplesPerFrame := frameSize
 				bytesPerFrame := samplesPerFrame * testChannels * (testBitDepth / 8)
