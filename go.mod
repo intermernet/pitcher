@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	fyne.io/fyne/v2 v2.7.3
-	github.com/gen2brain/malgo v0.11.10
+	github.com/gen2brain/malgo v0.11.24
 	github.com/runningwild/go-fftw v1.0.0
 )
 
