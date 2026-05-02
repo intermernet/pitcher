@@ -44,3 +44,12 @@ func mulScalarAddFloat64s(acc, src []float64, scalar float64) {
 		acc[i] += src[i] * scalar
 	}
 }
+
+// dotFloat64s computes the dot product Σ a[i]*b[i].
+func dotFloat64s(a, b []float64) float64 {
+	var sum float64
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum
+}

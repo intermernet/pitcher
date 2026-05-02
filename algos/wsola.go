@@ -113,10 +113,7 @@ func ProcessWSOLA(ctx *Context, output, input []byte) {
 				if ch.hasRef {
 					var bestVal float64
 					for d := 0; d <= delta; d++ {
-						var cc float64
-						for k := 0; k < hopSize; k++ {
-							cc += ch.prevOut[k] * st.searchBuf[d+k]
-						}
+						cc := dotFloat64s(ch.prevOut[:hopSize], st.searchBuf[d:d+hopSize])
 						if absCC := math.Abs(cc); d == 0 || absCC > bestVal {
 							bestVal = absCC
 							bestD = d

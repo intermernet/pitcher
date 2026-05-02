@@ -88,3 +88,22 @@ func mulScalarAddFloat64s(acc, src []float64, scalar float64) {
 		acc[i] += src[i] * scalar
 	}
 }
+
+// dotFloat64s computes the dot product Σ a[i]*b[i] using SIMD.
+func dotFloat64s(a, b []float64) float64 {
+	vsum := archsimd.BroadcastFloat64x4(0)
+	i := 0
+	for ; i+4 <= len(a); i += 4 {
+		va := archsimd.LoadFloat64x4Slice(a[i:])
+		vb := archsimd.LoadFloat64x4Slice(b[i:])
+		vsum = va.Mul(vb).Add(vsum)
+	}
+	// Horizontal reduction: store the 4 partial sums and add them in scalar.
+	var tmp [4]float64
+	vsum.StoreSlice(tmp[:])
+	sum := tmp[0] + tmp[1] + tmp[2] + tmp[3]
+	for ; i < len(a); i++ {
+		sum += a[i] * b[i]
+	}
+	return sum
+}

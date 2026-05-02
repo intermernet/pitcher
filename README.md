@@ -48,4 +48,5 @@ SIMD-optimized operations:
 - Array zeroing
 - Output accumulator (multiply-add)
 - Scalar-multiply accumulate (acc[i] += src[i] × scalar)
+- Dot product (WSOLA cross-correlation search)
 - Buffer copy
