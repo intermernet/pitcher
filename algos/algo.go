@@ -57,6 +57,13 @@ var Algorithms = []Algorithm{
 		Process:   ProcessLLSTFT,
 		NewState:  NewLLSTFTState,
 	},
+	{
+		FullName:  "Waveform Similarity Overlap-Add (WSOLA)",
+		ShortName: "wsola",
+		Defaults:  Defaults{FrameSize: 512, Oversampling: 2},
+		Process:   ProcessWSOLA,
+		NewState:  NewWSOLAState,
+	},
 }
 
 // Find returns the Algorithm matching shortName and whether it was found.
