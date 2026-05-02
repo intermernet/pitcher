@@ -32,9 +32,7 @@ func ProcessPSOLA(ctx *Context, output, input []byte) {
 				// Apply Hanning window and pitch-shift via time-domain resampling.
 				// We resample the analysis grain into a synthesis grain of a different
 				// length (grainSize / ratio), then overlap-add at the synthesis hop.
-				for k := 0; k < grainSize; k++ {
-					ctx.Reals[k] = ctx.Frame[c][k] * ctx.Window[k]
-				}
+				mulFloat64s(ctx.Reals[:grainSize], ctx.Frame[c], ctx.Window)
 
 				// Length of resampled grain in the output domain
 				synGrainLen := int(math.Round(float64(grainSize) / ratio))

@@ -37,3 +37,10 @@ func computeMagnitudes(dst, re, im []float64) {
 		dst[i] = 2 * math.Sqrt(r*r+m*m)
 	}
 }
+
+// mulScalarAddFloat64s computes acc[i] += src[i] * scalar.
+func mulScalarAddFloat64s(acc, src []float64, scalar float64) {
+	for i := range acc {
+		acc[i] += src[i] * scalar
+	}
+}

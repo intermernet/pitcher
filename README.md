@@ -41,4 +41,5 @@ SIMD-optimized operations:
 - Magnitude computation (2 × √(re² + im²))
 - Array zeroing
 - Output accumulator (multiply-add)
+- Scalar-multiply accumulate (acc[i] += src[i] × scalar)
 - Buffer copy

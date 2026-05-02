@@ -74,3 +74,17 @@ func computeMagnitudes(dst, re, im []float64) {
 		dst[i] = 2 * math.Sqrt(r*r+m*m)
 	}
 }
+
+// mulScalarAddFloat64s computes acc[i] += src[i] * scalar using SIMD.
+func mulScalarAddFloat64s(acc, src []float64, scalar float64) {
+	vscalar := archsimd.BroadcastFloat64x4(scalar)
+	i := 0
+	for ; i+4 <= len(acc); i += 4 {
+		vacc := archsimd.LoadFloat64x4Slice(acc[i:])
+		vsrc := archsimd.LoadFloat64x4Slice(src[i:])
+		vsrc.Mul(vscalar).Add(vacc).StoreSlice(acc[i:])
+	}
+	for ; i < len(acc); i++ {
+		acc[i] += src[i] * scalar
+	}
+}

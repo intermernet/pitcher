@@ -212,8 +212,8 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					cplx := ctx.FFTWData.Elems[k]
 					ctx.Reals[k] = real(cplx)
 					ctx.Imags[k] = imag(cplx)
-					ctx.Magnitudes[k] = 2 * math.Sqrt(ctx.Reals[k]*ctx.Reals[k]+ctx.Imags[k]*ctx.Imags[k])
 				}
+				computeMagnitudes(ctx.Magnitudes[:bins], ctx.Reals[:bins], ctx.Imags[:bins])
 
 				// ── STN Decomposition ──────────────────────────────────────
 				//
@@ -325,14 +325,11 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 				}
 
 				// ── Sines: accumulate synthesis phase (PV) ─────────────────
-				for k := 0; k <= ctx.FFTFrameSize/2; k++ {
-					tmp := st.synSinFreq[k]
-					tmp -= float64(k) * ctx.FreqPerBin
-					tmp /= ctx.FreqPerBin
-					tmp *= 2 * math.Pi / float64(ctx.Oversampling)
-					tmp += float64(k) * ctx.Expected
-					ch.pvSumPhase[k] += tmp
-				}
+				// The standard phase-step formula reduces algebraically because
+				// Expected = 2π/O, so the two k-dependent terms cancel:
+				//   pvSumPhase[k] += synSinFreq[k] * 2π / (O × FreqPerBin)
+				pvScale := 2 * math.Pi / (float64(ctx.Oversampling) * ctx.FreqPerBin)
+				mulScalarAddFloat64s(ch.pvSumPhase[:bins], st.synSinFreq[:bins], pvScale)
 
 				// ── Reconstruct spectrum: Sines + Transients + Noise ───────
 				//
