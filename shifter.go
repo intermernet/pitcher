@@ -33,7 +33,11 @@ func newShifter(fftFrameSize, oversampling int, sampleRate float64, bitDepth uin
 }
 
 // SetAlgorithm shadows the embedded method to keep currentAlgo in sync.
+// The write lock is held for the duration so that the audio callback cannot
+// observe a mismatched AlgoProcess/AlgoState pair mid-swap.
 func (s *shifter) SetAlgorithm(a algos.Algorithm) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.currentAlgo = a
 	s.Context.SetAlgorithm(a)
 }
