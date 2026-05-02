@@ -14,8 +14,6 @@ import (
 	"os"
 	"os/signal"
 
-	_ "net/http/pprof"
-
 	"github.com/gen2brain/malgo"
 	"github.com/intermernet/pitcher/algos"
 )
@@ -70,11 +68,6 @@ func main() {
 		log.Fatal("\"buffersize\" must be non-negative")
 	}
 
-	// pprof server
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:9999", nil))
-	// }()
-
 	// Setup logging
 	logProc := func(message string) {
 		// just return
@@ -86,7 +79,6 @@ func main() {
 	}
 
 	// Setup audio stuff
-	//ctx, err := malgo.InitContext([]malgo.Backend{malgo.BackendDsound}, malgo.ContextConfig{}, func(message string) {
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, logProc)
 	if err != nil {
 		fmt.Println(err)
