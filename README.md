@@ -18,6 +18,7 @@ Select with `--algo <shortname>` on the command line, or from the drop-down in t
 | Sines/Transients/Noise (STN) | `stn` | 2048 | 4 |
 | Low Latency STFT | `llstft` | 512 | 4 |
 | Waveform Similarity Overlap-Add (WSOLA) | `wsola` | 512 | 2 |
+| Based on Signalsmith Stretch | `sss` | 2048 | 4 |
 
 **Phase Vocoder** is the default. Based on the algorithm by [Stephan Bernsee](http://blogs.zynaptiq.com/bernsee/pitch-shifting-using-the-ft/), with further inspiration from [Patrick Stephen](https://github.com/200sc/klangsynthese). Frequency-domain approach; good general quality.
 
@@ -28,6 +29,8 @@ Select with `--algo <shortname>` on the command line, or from the drop-down in t
 **WSOLA** searches backward by up to one synthesis hop (delta = Step) to find the analysis grain whose beginning maximises cross-correlation with the current synthesis overlap region, then resamples that grain for pitch shifting. This suppresses waveform discontinuities at grain boundaries compared to PSOLA, at the cost of one extra dot-product search per frame. Based on [Verhelst & Roelands, ICASSP 1993](https://doi.org/10.1109/ICASSP.1993.319366).
 
 **Low Latency STFT** remaps bins by simple rounding (`b = round(a·ratio)`) and applies a per-frame phase correction to maintain vertical phase coherence — no frequency estimation is performed. This makes it significantly more robust than the phase vocoder when small frame sizes are required for low latency. Phasiness is avoided at the cost of mild transient duplication (one copy per oversampling period). Based on [Juillerat & Hirsbrunner, ICALIP 2010](https://doi.org/10.1109/ICALIP.2010.5685234).
+
+**Based on Signalsmith Stretch** uses a two-pass STFT approach inspired by the [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) library (Luff 2023). Pass 1 performs a standard horizontal (time) prediction — equivalent to a phase vocoder. Pass 2 refines each bin using blended vertical (frequency) predictors in both directions: upward from the just-computed pass-2 result and downward from the pass-1 seed. Vertical twists are measured as fixed 1- or L-step offsets in input-bin space, naturally weighting predictions by spectral energy so strong harmonics impose phase coherence on nearby bins. Omissions relative to the full library: no non-linear frequency map, no formant preservation. Based on [Luff, "The Design of Signalsmith Stretch", 2023](https://signalsmith-audio.co.uk/writing/2023/stretch-design/).
 
 ## SIMD Acceleration
 

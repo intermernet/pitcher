@@ -64,6 +64,13 @@ var Algorithms = []Algorithm{
 		Process:   ProcessWSOLA,
 		NewState:  NewWSOLAState,
 	},
+	{
+		FullName:  "Based on Signalsmith Stretch",
+		ShortName: "sss",
+		Defaults:  Defaults{FrameSize: 2048, Oversampling: 4},
+		Process:   ProcessSSS,
+		NewState:  NewSSSState,
+	},
 }
 
 // Find returns the Algorithm matching shortName and whether it was found.
