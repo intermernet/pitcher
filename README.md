@@ -16,12 +16,15 @@ Select with `--algo <shortname>` on the command line, or from the drop-down in t
 | Phase Vocoder | `phasvoc` | 512 | 4 |
 | Pitch-Synchronous Overlap-Add (PSOLA) | `psola` | 256 | 2 |
 | Sines/Transients/Noise (STN) | `stn` | 2048 | 4 |
+| Low Latency STFT | `llstft` | 512 | 4 |
 
 **Phase Vocoder** is the default. Based on the algorithm by [Stephan Bernsee](http://blogs.zynaptiq.com/bernsee/pitch-shifting-using-the-ft/), with further inspiration from [Patrick Stephen](https://github.com/200sc/klangsynthese). Frequency-domain approach; good general quality.
 
 **PSOLA** is a time-domain grain resampling algorithm. Lowest latency.
 
 **STN** decomposes each frame into Sines, Transients, and Noise components using fuzzy masks (Fierro & Välimäki 2023), shifts sines and noise independently, and passes transients through unmodified. Noise component is reconstructed via Noise Morphing (Moliner et al. 2024). Based on [Polak & Erkut, DAS|DAGA 2025](https://pub.dega-akustik.de/DAS-DAGA_2025/files/upload/paper/635.pdf).
+
+**Low Latency STFT** remaps bins by simple rounding (`b = round(a·ratio)`) and applies a per-frame phase correction to maintain vertical phase coherence — no frequency estimation is performed. This makes it significantly more robust than the phase vocoder when small frame sizes are required for low latency. Phasiness is avoided at the cost of mild transient duplication (one copy per oversampling period). Based on [Juillerat & Hirsbrunner, ICALIP 2010](https://doi.org/10.1109/ICALIP.2010.5685234).
 
 ## SIMD Acceleration
 

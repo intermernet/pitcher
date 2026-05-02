@@ -50,6 +50,13 @@ var Algorithms = []Algorithm{
 		Process:   ProcessSTN,
 		NewState:  NewSTNState,
 	},
+	{
+		FullName:  "Low Latency STFT",
+		ShortName: "llstft",
+		Defaults:  Defaults{FrameSize: 512, Oversampling: 4},
+		Process:   ProcessLLSTFT,
+		NewState:  NewLLSTFTState,
+	},
 }
 
 // Find returns the Algorithm matching shortName and whether it was found.
