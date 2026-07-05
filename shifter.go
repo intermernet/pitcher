@@ -62,7 +62,7 @@ func (s *shifter) Destroy() {
 	s.Inverse.Destroy()
 }
 
-// process is the malgo audio callback. It delegates to the active algorithm.
+// process is the audio callback. It delegates to the active algorithm.
 func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32) {
 	s.mu.RLock()
 	s.AlgoProcess(s.Context, pOutputSample, pInputSamples)

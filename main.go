@@ -14,7 +14,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/gen2brain/malgo"
+	"github.com/intermernet/gominiaudio"
 	"github.com/intermernet/pitcher/algos"
 )
 
@@ -23,7 +23,6 @@ var shift *int
 func main() {
 
 	guiOn := flag.Bool("gui", false, "Display GUI")
-	verbose := flag.Bool("verbose", false, "Verbose output")
 	shift = flag.Int("shift", 0, "Semitones to pitch-shift. Must be between -12 and +12")
 	algoFlag := flag.String("algo", algos.Default().ShortName, "Pitch-shifting algorithm. Options: "+algos.NamesString())
 	frameSize := flag.Int("framesize", 0, "FFT framesize. Must be a power of 2 (0 = use algorithm default)")
@@ -68,32 +67,21 @@ func main() {
 		log.Fatal("\"buffersize\" must be non-negative")
 	}
 
-	// Setup logging
-	logProc := func(message string) {
-		// just return
-	}
-	if *verbose {
-		logProc = func(message string) {
-			fmt.Printf("LOG: %v", message)
-		}
-	}
-
 	// Setup audio stuff
-	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, logProc)
+	ctx, err := gominiaudio.InitContext(nil, nil)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer func() {
 		_ = ctx.Uninit()
-		ctx.Free()
 	}()
 
 	channels := 2
-	format := malgo.FormatF32
-	bitDepth := uint16(malgo.SampleSizeInBytes(format) * 8)
-	deviceConfig := malgo.DefaultDeviceConfig(malgo.Duplex)
-	deviceConfig.PerformanceProfile = malgo.LowLatency
+	format := gominiaudio.FormatF32
+	bitDepth := uint16(format.SizeInBytes() * 8)
+	deviceConfig := gominiaudio.DeviceConfigInit(gominiaudio.DeviceTypeDuplex)
+	deviceConfig.PerformanceProfile = gominiaudio.PerformanceProfileLowLatency
 	deviceConfig.Capture.Format = format
 	deviceConfig.Capture.Channels = uint32(channels)
 	deviceConfig.Playback.Format = format
@@ -101,8 +89,8 @@ func main() {
 	deviceConfig.SampleRate = uint32(*sampleRate)
 
 	if *exclusive {
-		deviceConfig.Capture.ShareMode = malgo.Exclusive
-		deviceConfig.Playback.ShareMode = malgo.Exclusive
+		deviceConfig.Capture.ShareMode = gominiaudio.ShareModeExclusive
+		deviceConfig.Playback.ShareMode = gominiaudio.ShareModeExclusive
 	}
 
 	if *bufferSize > 0 {
@@ -112,16 +100,15 @@ func main() {
 
 	// Allow variable-sized callbacks — avoids miniaudio's internal ring buffer
 	// that adds an extra period of latency.
-	deviceConfig.NoFixedSizedCallback = 1
+	deviceConfig.NoFixedSizedCallback = true
 
 	// Platform-specific tuning
-	deviceConfig.Alsa.NoMMap = 1
-	deviceConfig.NoClip = 1
-	deviceConfig.NoPreSilencedOutputBuffer = 0
-	deviceConfig.Wasapi.NoAutoConvertSRC = 1
-	deviceConfig.Wasapi.NoAutoStreamRouting = 0
-	deviceConfig.Wasapi.NoDefaultQualitySRC = 0
-	deviceConfig.Wasapi.NoHardwareOffloading = 0
+	deviceConfig.NoClip = true
+	deviceConfig.NoPreSilencedOutputBuffer = false
+	deviceConfig.WASAPI.NoAutoConvertSRC = true
+	deviceConfig.WASAPI.NoAutoStreamRouting = false
+	deviceConfig.WASAPI.NoDefaultQualitySRC = true
+	deviceConfig.WASAPI.NoHardwareOffloading = false
 
 	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels, *periods, *bufferSize, *exclusive, algo)
 
@@ -132,12 +119,14 @@ func main() {
 		window = gui(s)
 	}
 	// Pitch shift callback
-	deviceCallbacks := malgo.DeviceCallbacks{
-		Data: s.process,
+	deviceCallbacks := gominiaudio.DeviceCallbacks{
+		Data: func(_ *gominiaudio.Device, output, input []byte, frames uint32) {
+			s.process(output, input, frames)
+		},
 	}
 
 	// Init audio
-	device, err := malgo.InitDevice(ctx.Context, deviceConfig, deviceCallbacks)
+	device, err := gominiaudio.InitDevice(ctx, deviceConfig, deviceCallbacks)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
