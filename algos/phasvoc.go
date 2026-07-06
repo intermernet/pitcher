@@ -52,16 +52,16 @@ func ProcessPhaseVocoder(ctx *Context, output, input []byte) {
 				// Windowing (SIMD multiply)
 				mulFloat64s(ctx.Reals[:ctx.FFTFrameSize], ctx.Frame[c], ctx.Window)
 				for k := 0; k < ctx.FFTFrameSize; k++ {
-					ctx.FFTWData.Elems[k] = complex(ctx.Reals[k], 0)
+					ctx.FFTData[k] = complex(ctx.Reals[k], 0)
 				}
 
 				// STFT
-				ctx.Forward.Execute()
+				ctx.Forward.Execute(ctx.FFTData, ctx.FFTData)
 
 				// Analysis
 				halfPlus1 := ctx.FFTFrameSize/2 + 1
 				for k := 0; k < halfPlus1; k++ {
-					cplx := ctx.FFTWData.Elems[k]
+					cplx := ctx.FFTData[k]
 					ctx.Reals[k] = real(cplx)
 					ctx.Imags[k] = imag(cplx)
 				}
@@ -105,20 +105,20 @@ func ProcessPhaseVocoder(ctx *Context, output, input []byte) {
 					tmp *= 2 * math.Pi / float64(ctx.Oversampling)
 					tmp += float64(k) * ctx.Expected
 					ctx.SumPhase[c][k] += tmp
-					ctx.FFTWData.Set(k, complex(magn*math.Cos(ctx.SumPhase[c][k]), magn*math.Sin(ctx.SumPhase[c][k])))
+					ctx.FFTData[k] = complex(magn*math.Cos(ctx.SumPhase[c][k]), magn*math.Sin(ctx.SumPhase[c][k]))
 				}
 
 				// Zero negative frequencies
 				for k := ctx.FFTFrameSize/2 + 1; k < ctx.FFTFrameSize; k++ {
-					ctx.FFTWData.Elems[k] = 0
+					ctx.FFTData[k] = 0
 				}
 
 				// Inverse STFT
-				ctx.Inverse.Execute()
+				ctx.Inverse.Execute(ctx.FFTData, ctx.FFTData)
 
 				// Windowing and add to output accumulator (SIMD)
 				for k := 0; k < ctx.FFTFrameSize; k++ {
-					ctx.Reals[k] = real(ctx.FFTWData.Elems[k])
+					ctx.Reals[k] = real(ctx.FFTData[k])
 				}
 				mulAddFloat64s(ctx.OutAcc[c][:ctx.FFTFrameSize], ctx.WindowFactors, ctx.Reals[:ctx.FFTFrameSize])
 				copyFloat64s(ctx.Stack[c][:ctx.Step], ctx.OutAcc[c][:ctx.Step])

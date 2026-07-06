@@ -42,25 +42,21 @@ func (s *shifter) SetAlgorithm(a algos.Algorithm) {
 	s.Context.SetAlgorithm(a)
 }
 
-// ReinitContext destroys the current DSP context and builds a fresh one with
-// the given frame size and oversampling factor. Ongoing audio callbacks are
-// blocked for the duration of the swap via the write lock.
+// ReinitContext builds a fresh DSP context with the given frame size and
+// oversampling factor. Ongoing audio callbacks are blocked for the duration
+// of the swap via the write lock.
 func (s *shifter) ReinitContext(fftFrameSize, oversampling int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pitchShift := s.PitchShift
 	volume := s.Volume
-	s.Forward.Destroy()
-	s.Inverse.Destroy()
 	s.Context = algos.NewContext(pitchShift, fftFrameSize, oversampling, s.SampleRate, s.BitDepth, int(s.Channels), s.currentAlgo)
 	s.Volume = volume
 }
 
-// Destroy releases FFTW resources held by the current DSP context.
-func (s *shifter) Destroy() {
-	s.Forward.Destroy()
-	s.Inverse.Destroy()
-}
+// Destroy is a no-op retained for API compatibility; gofftw plans are
+// managed by the Go garbage collector and require no manual cleanup.
+func (s *shifter) Destroy() {}
 
 // process is the audio callback. It delegates to the active algorithm.
 func (s *shifter) process(pOutputSample, pInputSamples []byte, framecount uint32) {

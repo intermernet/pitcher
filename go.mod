@@ -4,8 +4,8 @@ go 1.26.1
 
 require (
 	fyne.io/fyne/v2 v2.7.3
+	github.com/intermernet/gofftw v0.0.2
 	github.com/intermernet/gominiaudio v0.0.0-20260705070435-aa8131aaa2a1
-	github.com/runningwild/go-fftw v1.0.0
 )
 
 require (
@@ -32,7 +32,6 @@ require (
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
-	github.com/smartystreets/goconvey v1.8.1 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/testify v1.11.1 // indirect

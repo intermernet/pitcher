@@ -10,7 +10,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/runningwild/go-fftw/fftw"
+	"github.com/intermernet/gofftw/fft"
 )
 
 // Context holds all shared DSP state used by pitch-shifting algorithms.
@@ -27,8 +27,8 @@ type Context struct {
 	Expected                          float64
 	FrameIndex                        []int
 	Stack, Frame                      [][]float64
-	FFTWData                          *fftw.Array
-	Forward, Inverse                  *fftw.Plan
+	FFTData                           []complex128
+	Forward, Inverse                  *fft.Plan
 	Magnitudes, Frequencies           []float64
 	SynthMagnitudes, SynthFrequencies []float64
 	LastPhase, SumPhase               [][]float64
@@ -54,9 +54,9 @@ func NewContext(pitchShift float64, fftFrameSize, oversampling int, sampleRate f
 	c.Channels = uint16(channels)
 	c.Step = fftFrameSize / oversampling
 	c.Latency = fftFrameSize - c.Step
-	c.FFTWData = fftw.NewArray(fftFrameSize)
-	c.Forward = fftw.NewPlan(c.FFTWData, c.FFTWData, fftw.Forward, fftw.Estimate)
-	c.Inverse = fftw.NewPlan(c.FFTWData, c.FFTWData, fftw.Backward, fftw.Estimate)
+	c.FFTData = make([]complex128, fftFrameSize)
+	c.Forward = fft.NewPlan(fftFrameSize, fft.Forward)
+	c.Inverse = fft.NewPlan(fftFrameSize, fft.Backward)
 	c.Magnitudes = make([]float64, fftFrameSize)
 	c.Frequencies = make([]float64, fftFrameSize)
 	c.SynthMagnitudes = make([]float64, fftFrameSize)

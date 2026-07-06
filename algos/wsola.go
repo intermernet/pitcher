@@ -20,18 +20,18 @@
 * cleaner output on voiced speech and tonal instruments.
 *
 * For pitch shifting, the best-matching grain is then resampled to the target
-* ratio via linear interpolation — identical to the PSOLA resampling step.
+* ratio via linear interpolation â€” identical to the PSOLA resampling step.
 *
 * Buffer layout at each frame:
 *
 *   searchBuf:  [ prevDelta (delta samples) | Frame[c] (N samples) ]
-*                 t-(N+delta-1)  …  t-N      t-(N-1)  …  t
+*                 t-(N+delta-1)  â€¦  t-N      t-(N-1)  â€¦  t
 *
-*   Grain at offset d (d ∈ [0, delta]):
-*     d = delta → Frame[c] exactly  (ideal, no backward shift)
-*     d = 0     → delta samples before Frame[c] start  (maximum backward shift)
+*   Grain at offset d (d âˆˆ [0, delta]):
+*     d = delta â†’ Frame[c] exactly  (ideal, no backward shift)
+*     d = 0     â†’ delta samples before Frame[c] start  (maximum backward shift)
 *
-*   CC(d) = Σ_k  prevOut[k] · searchBuf[d + k],  k ∈ [0, Step)
+*   CC(d) = Î£_k  prevOut[k] Â· searchBuf[d + k],  k âˆˆ [0, Step)
 *
 *****************************************************************************/
 
@@ -103,12 +103,12 @@ func ProcessWSOLA(ctx *Context, output, input []byte) {
 				copyFloat64s(st.searchBuf[:delta], ch.prevDelta)
 				copyFloat64s(st.searchBuf[delta:delta+grainSize], ctx.Frame[c][:grainSize])
 
-				// Search for the best backward offset d ∈ [0, delta].
-				// d = delta → ideal grain (= Frame[c], no shift).
-				// d < delta → grain starts earlier in time (better waveform match).
+				// Search for the best backward offset d âˆˆ [0, delta].
+				// d = delta â†’ ideal grain (= Frame[c], no shift).
+				// d < delta â†’ grain starts earlier in time (better waveform match).
 				//
-				// CC(d) = Σ_k prevOut[k] · searchBuf[d+k], maximised over the
-				// overlap region (hopSize samples) per Verhelst & Roelands §2.
+				// CC(d) = Î£_k prevOut[k] Â· searchBuf[d+k], maximised over the
+				// overlap region (hopSize samples) per Verhelst & Roelands Â§2.
 				bestD := delta
 				if ch.hasRef {
 					var bestVal float64

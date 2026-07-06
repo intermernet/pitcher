@@ -89,7 +89,7 @@ func mulScalarAddFloat64s(acc, src []float64, scalar float64) {
 	}
 }
 
-// dotFloat64s computes the dot product Σ a[i]*b[i] using SIMD.
+// dotFloat64s computes the dot product Î£ a[i]*b[i] using SIMD.
 func dotFloat64s(a, b []float64) float64 {
 	vsum := archsimd.BroadcastFloat64x4(0)
 	i := 0

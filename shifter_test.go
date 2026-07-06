@@ -49,8 +49,6 @@ func newTestShifter(semitones int) *shifter {
 
 func TestShiftPassthrough(t *testing.T) {
 	s := newTestShifter(0) // 0 semitones = passthrough
-	defer s.Forward.Destroy()
-	defer s.Inverse.Destroy()
 
 	samplesPerFrame := testFFTFrameSize
 
@@ -100,8 +98,6 @@ func TestShiftPassthrough(t *testing.T) {
 
 func TestShiftPitchUp(t *testing.T) {
 	s := newTestShifter(12) // +12 semitones = one octave up
-	defer s.Forward.Destroy()
-	defer s.Inverse.Destroy()
 
 	samplesPerFrame := testFFTFrameSize
 
@@ -172,8 +168,6 @@ func TestSineSweepGlitchDetection(t *testing.T) {
 	for _, semitones := range []int{0, 3, 7, 12, -12} {
 		t.Run(fmt.Sprintf("shift_%+d", semitones), func(t *testing.T) {
 			s := newTestShifter(semitones)
-			defer s.Forward.Destroy()
-			defer s.Inverse.Destroy()
 
 			// Generate 2-second sine sweep 100 Hz → 8000 Hz
 			sweep := generateSineSweep(100, 8000, testSampleRate, 2.0, testChannels)
@@ -273,8 +267,6 @@ func BenchmarkShift(b *testing.B) {
 			b.Run(name, func(b *testing.B) {
 				initShift(0)
 				s := newShifter(frameSize, oversampling, testSampleRate, testBitDepth, testChannels, 2, frameSize/4, false, algos.Default())
-				defer s.Forward.Destroy()
-				defer s.Inverse.Destroy()
 
 				samplesPerFrame := frameSize
 				bytesPerFrame := samplesPerFrame * testChannels * (testBitDepth / 8)

@@ -66,21 +66,21 @@ func ProcessLLSTFT(ctx *Context, output, input []byte) {
 				// --- Analysis window + forward FFT ---
 				mulFloat64s(ctx.Reals[:N], ctx.Frame[c], ctx.Window)
 				for k := 0; k < N; k++ {
-					ctx.FFTWData.Elems[k] = complex(ctx.Reals[k], 0)
+					ctx.FFTData[k] = complex(ctx.Reals[k], 0)
 				}
-				ctx.Forward.Execute()
+				ctx.Forward.Execute(ctx.FFTData, ctx.FFTData)
 
 				// --- Bin remapping + phase correction (eq. 1 & 2 from paper) ---
 				// Save the analysis spectrum before zeroing the synthesis buffer.
 				// Re-use ctx.Magnitudes/Frequencies as scratch for the real/imag parts.
 				for k := 0; k < N; k++ {
-					ctx.Magnitudes[k] = real(ctx.FFTWData.Elems[k])
-					ctx.Frequencies[k] = imag(ctx.FFTWData.Elems[k])
+					ctx.Magnitudes[k] = real(ctx.FFTData[k])
+					ctx.Frequencies[k] = imag(ctx.FFTData[k])
 				}
 
 				// Zero the synthesis spectrum ready for accumulation.
 				for k := 0; k < N; k++ {
-					ctx.FFTWData.Elems[k] = 0
+					ctx.FFTData[k] = 0
 				}
 
 				for a := 0; a <= half; a++ {
@@ -91,31 +91,31 @@ func ProcessLLSTFT(ctx *Context, output, input []byte) {
 					re := ctx.Magnitudes[a]
 					im := ctx.Frequencies[a]
 
-					// Phase correction angle θ = -(b-a)*p/O * 2π/N
+					// Phase correction angle Î¸ = -(b-a)*p/O * 2Ï€/N
 					theta := -float64(b-a) * float64(p) / float64(O) * twoPI / float64(N)
 					cosT := math.Cos(theta)
 					sinT := math.Sin(theta)
 
-					// Multiply phasor (re + i*im) by exp(iθ) = cosT + i*sinT
+					// Multiply phasor (re + i*im) by exp(iÎ¸) = cosT + i*sinT
 					newRe := re*cosT - im*sinT
 					newIm := re*sinT + im*cosT
 
-					ctx.FFTWData.Elems[b] += complex(newRe, newIm)
+					ctx.FFTData[b] += complex(newRe, newIm)
 				}
 
 				// Mirror conjugate for bins above Nyquist so the IFFT output is real.
 				for k := 1; k < half; k++ {
-					ctx.FFTWData.Elems[N-k] = complex(real(ctx.FFTWData.Elems[k]), -imag(ctx.FFTWData.Elems[k]))
+					ctx.FFTData[N-k] = complex(real(ctx.FFTData[k]), -imag(ctx.FFTData[k]))
 				}
-				ctx.FFTWData.Elems[N/2] = complex(real(ctx.FFTWData.Elems[half]), 0)
+				ctx.FFTData[N/2] = complex(real(ctx.FFTData[half]), 0)
 
 				// --- Inverse FFT ---
-				ctx.Inverse.Execute()
+				ctx.Inverse.Execute(ctx.FFTData, ctx.FFTData)
 
 				// --- Synthesis window + OLA ---
 				// Apply synthesis Hann window and normalised OLA accumulation.
 				for k := 0; k < N; k++ {
-					ctx.Reals[k] = real(ctx.FFTWData.Elems[k])
+					ctx.Reals[k] = real(ctx.FFTData[k])
 				}
 				mulAddFloat64s(ctx.OutAcc[c][:N], ctx.WindowFactors, ctx.Reals[:N])
 				copyFloat64s(ctx.Stack[c][:ctx.Step], ctx.OutAcc[c][:ctx.Step])
