@@ -1,7 +1,7 @@
 # pitcher
 A pitch shifting app with multiple algorithms.
 
-Uses [miniaudiogo](https://github.com/intermernet/miniaudiogo) (based on [Miniaudio](https://miniaud.io/)) for audio IO.
+Uses [gominiaudio](https://github.com/intermernet/gominiaudio) (based on [Miniaudio](https://miniaud.io/)) for audio IO.
 
 [fyne](https://fyne.io/) for GUI
 
