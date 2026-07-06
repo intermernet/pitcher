@@ -1,11 +1,11 @@
 # pitcher
 A pitch shifting app with multiple algorithms.
 
-Uses [malgo](https://github.com/gen2brain/malgo) (based on [Miniaudio](https://miniaud.io/)) for audio IO.
+Uses [miniaudiogo](https://github.com/intermernet/miniaudiogo) (based on [Miniaudio](https://miniaud.io/)) for audio IO.
 
 [fyne](https://fyne.io/) for GUI
 
-[fftw](https://github.com/runningwild/go-fftw/) (Go bindings for [Fastest Fourier Transform in the West](https://www.fftw.org/)) for FFT functionality
+[fftw](https://github.com/intermernet/gofftw/) (Go port of [Fastest Fourier Transform in the West](https://www.fftw.org/)) for FFT functionality
 
 ## Algorithms
 
