@@ -5,7 +5,7 @@ Uses [gominiaudio](https://github.com/intermernet/gominiaudio) (based on [Miniau
 
 [fyne](https://fyne.io/) for GUI
 
-[fftw](https://github.com/intermernet/gofftw/) (Go port of [Fastest Fourier Transform in the West](https://www.fftw.org/)) for FFT functionality
+[gofftw](https://github.com/intermernet/gofftw/) (Go port of [Fastest Fourier Transform in the West](https://www.fftw.org/)) for FFT functionality
 
 ## Algorithms
 
