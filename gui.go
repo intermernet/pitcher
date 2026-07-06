@@ -10,18 +10,20 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
+	"github.com/intermernet/gominiaudio"
 	"github.com/intermernet/pitcher/algos"
 )
 
 var window fyne.Window
 
-func gui(s *shifter) fyne.Window {
+func gui(s *shifter, inputs, outputs []gominiaudio.DeviceInfo, initialInputIdx, initialOutputIdx int, restartAudio func(*gominiaudio.DeviceID, *gominiaudio.DeviceID)) fyne.Window {
 	shiftApp := app.New()
 
 	// Define app icon and set window title / size
@@ -120,9 +122,70 @@ func gui(s *shifter) fyne.Window {
 	})
 	algoSelect.SetSelected(s.AlgoName)
 
+	// Device selectors
+	deviceOptionNames := func(devices []gominiaudio.DeviceInfo) []string {
+		names := make([]string, len(devices))
+		for i, d := range devices {
+			if d.IsDefault {
+				names[i] = fmt.Sprintf("%d: %s [default]", i, d.Name)
+			} else {
+				names[i] = fmt.Sprintf("%d: %s", i, d.Name)
+			}
+		}
+		return names
+	}
+	inputNames := deviceOptionNames(inputs)
+	outputNames := deviceOptionNames(outputs)
+
+	// Track current device IDs so each dropdown can preserve the other on restart.
+	currentCaptureID := inputs[initialInputIdx].ID
+	currentPlaybackID := outputs[initialOutputIdx].ID
+
+	parseDeviceIdx := func(selected string) int {
+		parts := strings.SplitN(selected, ":", 2)
+		idx, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+		return idx
+	}
+
+	inputSelect := widget.NewSelect(inputNames, nil)
+	if initialInputIdx < len(inputNames) {
+		inputSelect.SetSelected(inputNames[initialInputIdx])
+	}
+	inputSelect.OnChanged = func(selected string) {
+		idx := parseDeviceIdx(selected)
+		if idx < 0 || idx >= len(inputs) {
+			return
+		}
+		currentCaptureID = inputs[idx].ID
+		pid := currentPlaybackID
+		restartAudio(&currentCaptureID, &pid)
+	}
+
+	outputSelect := widget.NewSelect(outputNames, nil)
+	if initialOutputIdx < len(outputNames) {
+		outputSelect.SetSelected(outputNames[initialOutputIdx])
+	}
+	outputSelect.OnChanged = func(selected string) {
+		idx := parseDeviceIdx(selected)
+		if idx < 0 || idx >= len(outputs) {
+			return
+		}
+		currentPlaybackID = outputs[idx].ID
+		cid := currentCaptureID
+		restartAudio(&cid, &currentPlaybackID)
+	}
+
+	deviceRow := container.NewHBox(
+		widget.NewLabel("Input:"),
+		inputSelect,
+		widget.NewLabel("  Output:"),
+		outputSelect,
+	)
+
 	// Layout
 	w.SetContent(container.NewVBox(
 		info,
+		deviceRow,
 		dspRow,
 		algoLabel,
 		algoSelect,

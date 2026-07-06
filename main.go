@@ -31,6 +31,9 @@ func main() {
 	periods := flag.Int("periods", 2, "Audio buffer periods (2 = double-buffered)")
 	bufferSize := flag.Int("buffersize", 256, "Audio period size in frames (lower = less latency, may cause glitches)")
 	exclusive := flag.Bool("exclusive", false, "Use WASAPI exclusive mode (locks audio device, lower latency)")
+	list := flag.Bool("list", false, "List available input/output audio devices and exit")
+	inputDevice := flag.Int("input", -1, "Input (capture) device number from --list (default: system default)")
+	outputDevice := flag.Int("output", -1, "Output (playback) device number from --list (default: system default)")
 	flag.Parse()
 
 	// Resolve algorithm
@@ -45,6 +48,32 @@ func main() {
 	}
 	if *overSampling == 0 {
 		*overSampling = algo.Defaults.Oversampling
+	}
+
+	// Setup audio context first — needed for device enumeration and --list.
+	ctx, err := gominiaudio.InitContext(nil, nil)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer func() {
+		_ = ctx.Uninit()
+	}()
+
+	captureDevices, err := ctx.Devices(gominiaudio.DeviceTypeCapture)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	playbackDevices, err := ctx.Devices(gominiaudio.DeviceTypePlayback)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	if *list {
+		printDeviceList(captureDevices, playbackDevices)
+		os.Exit(0)
 	}
 
 	// Flag sanity checks
@@ -66,16 +95,6 @@ func main() {
 	if *bufferSize < 0 {
 		log.Fatal("\"buffersize\" must be non-negative")
 	}
-
-	// Setup audio stuff
-	ctx, err := gominiaudio.InitContext(nil, nil)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer func() {
-		_ = ctx.Uninit()
-	}()
 
 	channels := 2
 	format := gominiaudio.FormatF32
@@ -110,14 +129,39 @@ func main() {
 	deviceConfig.WASAPI.NoDefaultQualitySRC = true
 	deviceConfig.WASAPI.NoHardwareOffloading = false
 
+	// Set device IDs from --input / --output (nil = system default).
+	var captureDeviceID, playbackDeviceID *gominiaudio.DeviceID
+	if *inputDevice >= 0 {
+		if *inputDevice >= len(captureDevices) {
+			log.Fatalf("input device %d not found (use --list to see available devices)", *inputDevice)
+		}
+		id := captureDevices[*inputDevice].ID
+		captureDeviceID = &id
+	}
+	if *outputDevice >= 0 {
+		if *outputDevice >= len(playbackDevices) {
+			log.Fatalf("output device %d not found (use --list to see available devices)", *outputDevice)
+		}
+		id := playbackDevices[*outputDevice].ID
+		playbackDeviceID = &id
+	}
+	deviceConfig.Capture.DeviceID = captureDeviceID
+	deviceConfig.Playback.DeviceID = playbackDeviceID
+
+	// Initial device indices for GUI dropdowns.
+	initialInputIdx := findDefaultDeviceIdx(captureDevices)
+	if *inputDevice >= 0 {
+		initialInputIdx = *inputDevice
+	}
+	initialOutputIdx := findDefaultDeviceIdx(playbackDevices)
+	if *outputDevice >= 0 {
+		initialOutputIdx = *outputDevice
+	}
+
 	s := newShifter(*frameSize, *overSampling, float64(*sampleRate), bitDepth, channels, *periods, *bufferSize, *exclusive, algo)
 
 	defer s.Destroy()
 
-	// Init GUI
-	if *guiOn {
-		window = gui(s)
-	}
 	// Pitch shift callback
 	deviceCallbacks := gominiaudio.DeviceCallbacks{
 		Data: func(_ *gominiaudio.Device, output, input []byte, frames uint32) {
@@ -126,23 +170,54 @@ func main() {
 	}
 
 	// Init audio
-	device, err := gominiaudio.InitDevice(ctx, deviceConfig, deviceCallbacks)
+	var device *gominiaudio.Device
+	device, err = gominiaudio.InitDevice(ctx, deviceConfig, deviceCallbacks)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+	defer func() { device.Uninit() }()
 
-	defer device.Uninit()
-
-	// Start audio processing in goroutine
+	// Start audio processing
 	go func() {
-		err := device.Start()
-		if err != nil {
+		if startErr := device.Start(); startErr != nil {
 			os.Exit(1)
 		}
 	}()
 
-	// Start GUI
+	// restartAudio stops the current device and opens a new one with the
+	// provided capture/playback device IDs (nil = system default).
+	restartAudio := func(captureID, playbackID *gominiaudio.DeviceID) {
+		device.Uninit()
+		if captureID != nil {
+			c := *captureID
+			deviceConfig.Capture.DeviceID = &c
+		} else {
+			deviceConfig.Capture.DeviceID = nil
+		}
+		if playbackID != nil {
+			p := *playbackID
+			deviceConfig.Playback.DeviceID = &p
+		} else {
+			deviceConfig.Playback.DeviceID = nil
+		}
+		d, initErr := gominiaudio.InitDevice(ctx, deviceConfig, deviceCallbacks)
+		if initErr != nil {
+			fmt.Println("device switch failed:", initErr)
+			return
+		}
+		device = d
+		if startErr := d.Start(); startErr != nil {
+			fmt.Println("device start failed:", startErr)
+		}
+	}
+
+	// Init GUI
+	if *guiOn {
+		window = gui(s, captureDevices, playbackDevices, initialInputIdx, initialOutputIdx, restartAudio)
+	}
+
+	// Start GUI or wait for interrupt
 	switch *guiOn {
 	case true:
 		window.ShowAndRun()
@@ -169,4 +244,32 @@ func main() {
 		fmt.Println("Exiting...")
 		os.Exit(0)
 	}
+}
+
+func printDeviceList(inputs, outputs []gominiaudio.DeviceInfo) {
+	fmt.Println("Input devices (use with --input N):")
+	for i, d := range inputs {
+		def := ""
+		if d.IsDefault {
+			def = " [default]"
+		}
+		fmt.Printf("  %d: %s%s\n", i, d.Name, def)
+	}
+	fmt.Println("\nOutput devices (use with --output N):")
+	for i, d := range outputs {
+		def := ""
+		if d.IsDefault {
+			def = " [default]"
+		}
+		fmt.Printf("  %d: %s%s\n", i, d.Name, def)
+	}
+}
+
+func findDefaultDeviceIdx(devices []gominiaudio.DeviceInfo) int {
+	for i, d := range devices {
+		if d.IsDefault {
+			return i
+		}
+	}
+	return 0
 }
