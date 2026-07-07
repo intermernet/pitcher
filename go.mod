@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	fyne.io/fyne/v2 v2.7.3
 	github.com/intermernet/gofftw v0.0.2
-	github.com/intermernet/gominiaudio v0.0.0-20260705070435-aa8131aaa2a1
+	github.com/intermernet/gominiaudio v0.0.3
 )
 
 require (

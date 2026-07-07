@@ -41,8 +41,8 @@ github.com/hack-pad/safejs v0.1.0 h1:qPS6vjreAqh2amUqj4WNG1zIw7qlRQJ9K10eDKMCnE8
 github.com/hack-pad/safejs v0.1.0/go.mod h1:HdS+bKF1NrE72VoXZeWzxFOVQVUSqZJAG0xNCnb+Tio=
 github.com/intermernet/gofftw v0.0.2 h1:wQAe0PBrRfObGvtR6V1b48tvu8ByZkRvJXh/gi8C9Ao=
 github.com/intermernet/gofftw v0.0.2/go.mod h1:ntIBFNwfymdIHVe22+yL3E7RZQupLdSuEZtK0Uorhoc=
-github.com/intermernet/gominiaudio v0.0.0-20260705070435-aa8131aaa2a1 h1:7d/LVTBz+ntLwI0k0m7dP7A33mnZpDpkRVG5D3gSpfg=
-github.com/intermernet/gominiaudio v0.0.0-20260705070435-aa8131aaa2a1/go.mod h1:3Cp8WAqpniNLsjtE0mOzlzvscJ1fd04lIC9/3DFX5/c=
+github.com/intermernet/gominiaudio v0.0.3 h1:ez0YZtpZJuachxrfegE1aLh9LsAVk4ZCodnoaTb4yqQ=
+github.com/intermernet/gominiaudio v0.0.3/go.mod h1:3Cp8WAqpniNLsjtE0mOzlzvscJ1fd04lIC9/3DFX5/c=
 github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade h1:FmusiCI1wHw+XQbvL9M+1r/C3SPqKrmBaIOYwVfQoDE=
 github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade/go.mod h1:ZDXo8KHryOWSIqnsb/CiDq7hQUYryCgdVnxbj8tDG7o=
 github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 h1:YLvr1eE6cdCqjOe972w/cYF+FjW34v27+9Vo5106B4M=
