@@ -116,6 +116,13 @@ func main() {
 		deviceConfig.PeriodSizeInFrames = uint32(*bufferSize)
 	}
 	deviceConfig.Periods = uint32(*periods)
+	// DuplexPreSeekSizeInFrames: pre-fill the capture→playback ring buffer with
+	// one period of silence at startup. The default (0) uses 2×capturePeriod,
+	// which doubles the hidden duplex bridge latency for no benefit in a
+	// real-time pitch-shift pipeline.
+	if *bufferSize > 0 {
+		deviceConfig.DuplexPreSeekSizeInFrames = uint32(*bufferSize)
+	}
 
 	// Allow variable-sized callbacks — avoids miniaudio's internal ring buffer
 	// that adds an extra period of latency.
@@ -173,14 +180,24 @@ func main() {
 	var device *gominiaudio.Device
 	device, err = gominiaudio.InitDevice(ctx, deviceConfig, deviceCallbacks)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		if *exclusive && isExclusiveModeError(err) {
+			fmt.Fprintf(os.Stderr, "Warning: exclusive mode failed (%v); retrying in shared mode\n", err)
+			deviceConfig.Capture.ShareMode = gominiaudio.ShareModeShared
+			deviceConfig.Playback.ShareMode = gominiaudio.ShareModeShared
+			s.exclusive = false
+			device, err = gominiaudio.InitDevice(ctx, deviceConfig, deviceCallbacks)
+		}
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 	defer func() { device.Uninit() }()
 
 	// Start audio processing
 	go func() {
 		if startErr := device.Start(); startErr != nil {
+			fmt.Fprintln(os.Stderr, "Failed to start audio device:", startErr)
 			os.Exit(1)
 		}
 	}()
@@ -208,25 +225,37 @@ func main() {
 		}
 		device = d
 		if startErr := d.Start(); startErr != nil {
-			fmt.Println("device start failed:", startErr)
+			fmt.Fprintln(os.Stderr, "Failed to start audio device after switch:", startErr)
 		}
 	}
 
 	// Init GUI
+	var runGUI func() error
 	if *guiOn {
-		window = gui(s, captureDevices, playbackDevices, initialInputIdx, initialOutputIdx, restartAudio)
+		runGUI = gui(s, captureDevices, playbackDevices, initialInputIdx, initialOutputIdx, restartAudio)
 	}
 
 	// Start GUI or wait for interrupt
 	switch *guiOn {
 	case true:
-		window.ShowAndRun()
+		if err := runGUI(); err != nil {
+			log.Fatal(err)
+		}
 	default:
 		exclStr := "No"
-		if *exclusive {
+		if s.exclusive {
 			exclStr = "Yes"
 		}
-		latencyMs := float64(s.Latency) / s.SampleRate * 1000.0
+		capPeriod := device.CaptureInternalPeriodSizeInFrames()
+		playPeriod := device.PlaybackInternalPeriodSizeInFrames()
+		preSeek := deviceConfig.DuplexPreSeekSizeInFrames
+		if preSeek == 0 {
+			preSeek = capPeriod * 2 // gominiaudio default
+		}
+		// Total pipeline latency: capture period + duplex pre-seek + algorithm + playback period
+		totalFrames := capPeriod + preSeek + uint32(s.Latency) + playPeriod
+		totalMs := float64(totalFrames) / s.SampleRate * 1000.0
+		algoMs := float64(s.Latency) / s.SampleRate * 1000.0
 		fmt.Printf("\nPitcher — running parameters:\n")
 		fmt.Printf("  Algorithm:    %s (%s)\n", algo.FullName, algo.ShortName)
 		fmt.Printf("  Shift:        %+d semitones\n", *shift)
@@ -234,9 +263,21 @@ func main() {
 		fmt.Printf("  Oversampling: %d\n", *overSampling)
 		fmt.Printf("  Sample rate:  %d Hz\n", *sampleRate)
 		fmt.Printf("  Periods:      %d\n", *periods)
-		fmt.Printf("  Buffer size:  %d frames\n", *bufferSize)
+		fmt.Printf("  Buffer size:  %d frames (capture period: %d, playback period: %d)\n",
+			*bufferSize, capPeriod, playPeriod)
 		fmt.Printf("  Exclusive:    %s\n", exclStr)
-		fmt.Printf("  Latency:      %.1f ms\n\n", latencyMs)
+		if s.exclusive {
+			cf, cch, cr := device.CaptureInternalFormat()
+			pf, pch, pr := device.PlaybackInternalFormat()
+			fmt.Printf("  Capture fmt:  %v %dch %dHz (%s)\n", cf, cch, cr, device.CaptureName())
+			fmt.Printf("  Playback fmt: %v %dch %dHz (%s)\n", pf, pch, pr, device.PlaybackName())
+		}
+		fmt.Printf("  Algo latency: %.1f ms\n", algoMs)
+		fmt.Printf("  Pre-seek:     %d frames (%.1f ms)\n", preSeek, float64(preSeek)/s.SampleRate*1000.0)
+		fmt.Printf("  Total latency ~%.1f ms  (algo %.1f + pre-seek %.1f + I/O %.1f)\n\n",
+			totalMs, algoMs,
+			float64(preSeek)/s.SampleRate*1000.0,
+			float64(capPeriod+playPeriod)/s.SampleRate*1000.0)
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt)
 		fmt.Println("Press Ctrl-C / Cmd-. to exit")
@@ -272,4 +313,13 @@ func findDefaultDeviceIdx(devices []gominiaudio.DeviceInfo) int {
 		}
 	}
 	return 0
+}
+
+// isExclusiveModeError returns true for errors that indicate exclusive mode
+// is unavailable (not supported, device already in exclusive use, or no
+// compatible exclusive format found).
+func isExclusiveModeError(err error) bool {
+	return err == gominiaudio.ErrShareModeNotSupported ||
+		err == gominiaudio.ErrAlreadyInUse ||
+		err == gominiaudio.ErrFormatNotSupported
 }
