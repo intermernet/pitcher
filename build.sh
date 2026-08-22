@@ -89,4 +89,4 @@ info "Building pitcher..."
 go build -ldflags="-s -w" -o pitcher .
 
 info "Build complete — binary: ./pitcher"
-info "Run with --help for usage, or --gui to open the graphical interface."
+info "Run with -help for usage, or -gui to open the graphical interface."

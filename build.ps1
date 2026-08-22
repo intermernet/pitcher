@@ -73,4 +73,4 @@ go build -ldflags "-s -w" -o pitcher.exe .
 if ($LASTEXITCODE -ne 0) { Fail "go build failed" }
 
 Info "Build complete - binary: .\pitcher.exe"
-Write-Host "Run 'pitcher.exe --help' for usage, or 'pitcher.exe --gui' for the graphical interface." -ForegroundColor Green
+Write-Host "Run 'pitcher.exe -help' for usage, or 'pitcher.exe -gui' for the graphical interface." -ForegroundColor Green
