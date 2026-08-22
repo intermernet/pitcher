@@ -23,30 +23,30 @@
 *
 * Two-pass design per frame:
 *
-*   Pass 1 â€“ horizontal prediction (like a standard phase vocoder):
+*   Pass 1 - horizontal prediction (like a standard phase vocoder):
 *     For each output bin b, measure the phase change at the mapped input
 *     position between the previous and current frames, and apply it to the
 *     previous output bin.  This gives a horizontally-coherent first estimate.
 *
-*   Pass 2 â€“ vertical prediction (assembles from neighbouring bins):
+*   Pass 2 - vertical prediction (assembles from neighbouring bins):
 *     Iterate upwards from DC.  For each bin b combine four vertical predictors:
-*       â€¢ short upward:   from pass-2 result at bâˆ’1, using input twist from
-*                         (inBinâˆ’1) to inBin
-*       â€¢ long  upward:   from pass-2 result at bâˆ’L, using input twist from
-*                         (inBinâˆ’L) to inBin
-*       â€¢ short downward: from pass-1 result at b+1, using the reverse of
+*     - short upward:   from pass-2 result at b-1, using input twist from
+*                         (inBin-1) to inBin
+*     - long  upward:   from pass-2 result at b-L, using input twist from
+*                         (inBin-L) to inBin
+*     - short downward: from pass-1 result at b+1, using the reverse of
 *                         b+1's own upward twist
-*       â€¢ long  downward: from pass-1 result at b+L, using the reverse of
+*     - long  downward: from pass-1 result at b+L, using the reverse of
 *                         b+L's own upward twist
 *     All vertical twists are measured as fixed 1- or L-step offsets in the
 *     input bin space (not in output bin space), consistent with the reference
 *     implementation.  The final magnitude is set to |curInput[inBin]|.
 *
 * Omissions vs. the reference library:
-*   â€¢ No non-linear frequency map / peak detection
-*   â€¢ No formant preservation
-*   â€¢ No time-stretch (pitch-shift only, time factor = 1)
-*   â€¢ Single-resolution (no adaptive block size)
+*   - No non-linear frequency map / peak detection
+*   - No formant preservation
+*   - No time-stretch (pitch-shift only, time factor = 1)
+*   - Single-resolution (no adaptive block size)
 *
 *****************************************************************************/
 
@@ -148,7 +148,7 @@ func ProcessSSS(ctx *Context, output, input []byte) {
 			if frameIndex >= N {
 				frameIndex = ctx.Latency
 
-				// â”€â”€ Window + forward FFT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Window + forward FFT
 				mulFloat64s(ctx.Reals[:N], ctx.Frame[c], ctx.Window)
 				for k := 0; k < N; k++ {
 					ctx.FFTData[k] = complex(ctx.Reals[k], 0)
@@ -161,7 +161,7 @@ func ProcessSSS(ctx *Context, output, input []byte) {
 					st.curInput[c][k] = ctx.FFTData[k]
 				}
 
-				// â”€â”€ Pass 1: horizontal (phase-vocoder) prediction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Pass 1: horizontal (phase-vocoder) prediction
 				//
 				// For each output bin b, measure the phase change at the
 				// mapped input position between prevInput and curInput; apply
@@ -176,14 +176,14 @@ func ProcessSSS(ctx *Context, output, input []byte) {
 					st.pass1Out[c][b] = sssSetMag(pred, inC)
 				}
 
-				// â”€â”€ Pass 2: vertical predictions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Pass 2: vertical predictions
 				//
-				// Iterates upward (b = 0, 1, â€¦, binsâˆ’1).  Four predictors:
+				// Iterates upward (b = 0, 1, ..., bins-1).  Four predictors:
 				//
 				//   Upward short/long: use the pass-2 result already written
-				//     at bâˆ’1 / bâˆ’longStep (bins below, already stable).
-				//     Twist is measured from input position (inBin âˆ’ offset)
-				//     to inBin â€” a fixed 1- or L-step shift in input space,
+				//     at b-1 / b-longStep (bins below, already stable).
+				//     Twist is measured from input position (inBin - offset)
+				//     to inBin - a fixed 1- or L-step shift in input space,
 				//     matching the reference implementation.
 				//
 				//   Downward short/long: use the pass-1 result at b+1 /
@@ -199,13 +199,13 @@ func ProcessSSS(ctx *Context, output, input []byte) {
 
 					var phase complex128
 
-					// Upward short (from pass-2 bin bâˆ’1, already written)
+					// Upward short (from pass-2 bin b-1, already written)
 					if b > 0 {
 						inCBelow := sssInterp(st.curInput[c], inBin-1)
 						phase += ctx.FFTData[b-1] * sssConjMul(inC, inCBelow)
 					}
 
-					// Upward long (from pass-2 bin bâˆ’longStep)
+					// Upward long (from pass-2 bin b-longStep)
 					if b >= longStep {
 						inCBelowL := sssInterp(st.curInput[c], inBin-float64(longStep))
 						phase += ctx.FFTData[b-longStep] * sssConjMul(inC, inCBelowL)
@@ -238,7 +238,7 @@ func ProcessSSS(ctx *Context, output, input []byte) {
 					st.prevInput[c][k] = st.curInput[c][k]
 				}
 
-				// â”€â”€ Mirror conjugate + inverse FFT + OLA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Mirror conjugate + inverse FFT + OLA
 				for k := 1; k < N/2; k++ {
 					ctx.FFTData[N-k] = complex(
 						real(ctx.FFTData[k]),

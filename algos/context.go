@@ -40,7 +40,7 @@ type Context struct {
 	// Active algorithm
 	AlgoProcess func(ctx *Context, output, input []byte)
 	AlgoName    string
-	AlgoState   interface{}
+	AlgoState   any
 }
 
 // NewContext allocates and initialises DSP processing state.

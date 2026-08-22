@@ -11,7 +11,7 @@
 *   DAS|DAGA 2025, Copenhagen.
 *
 * STN decomposition method:
-*   Fierro & VÃ¤limÃ¤ki, "Enhanced fuzzy decomposition of sound into sines,
+*   Fierro & Valimaki, "Enhanced fuzzy decomposition of sound into sines,
 *   transients, and noise", J. Audio Eng. Soc. 71 (2023), 468-480.
 *
 * Noise Morphing method:
@@ -46,7 +46,7 @@ type stnState struct {
 	// Filter parameters
 	lh           int     // horizontal (time) median filter length (frames, causal)
 	lv           int     // vertical (frequency) median filter length (bins)
-	betaL, betaU float64 // fuzzy mask thresholds (Fierro & VÃ¤limÃ¤ki 2023)
+	betaL, betaU float64 // fuzzy mask thresholds (Fierro & Valimaki 2023)
 
 	// Shared scratch buffers (one channel processed at a time, so no races)
 	colBuf  []float64 // [lh]   column of ring buffer for horizontal median
@@ -110,10 +110,10 @@ func NewSTNState(ctx *Context) interface{} {
 }
 
 // stnFuzzy evaluates the fuzzy membership function from eq (2) of
-// Fierro & VÃ¤limÃ¤ki 2023:
+// Fierro & Valimaki 2023:
 //
-//	f(x) = 1                                     if x â‰¥ Î²U
-//	        sinÂ²(Ï€/2 Â· (xâˆ’Î²L)/(Î²Uâˆ’Î²L))          if Î²L â‰¤ x â‰¤ Î²U
+//	f(x) = 1                                     if x >= betaU
+//	        sin^2(pi/2 * (x-betaL)/(betaU-betaL))  if betaL <= x <= betaU
 //	        0                                     otherwise
 func stnFuzzy(x, betaL, betaU float64) float64 {
 	if x >= betaU {
@@ -127,7 +127,7 @@ func stnFuzzy(x, betaL, betaU float64) float64 {
 	return s * s
 }
 
-// stnInsertionSort sorts buf in place. Fast for small slices (lh â‰¤ 21).
+// stnInsertionSort sorts buf in place. Fast for small slices (lh <= 21).
 func stnInsertionSort(buf []float64) {
 	for i := 1; i < len(buf); i++ {
 		key := buf[i]
@@ -150,14 +150,14 @@ func stnMedian(buf []float64) float64 {
 	return buf[n/2]
 }
 
-// stnRandPhase returns a uniform random phase in [âˆ’Ï€, Ï€] via xorshift64.
+// stnRandPhase returns a uniform random phase in [-pi, pi] via xorshift64.
 func stnRandPhase(state *uint64) float64 {
 	x := *state
 	x ^= x << 13
 	x ^= x >> 7
 	x ^= x << 17
 	*state = x
-	// Top 53 bits â†’ [0, 1) â†’ [âˆ’Ï€, Ï€]
+	// Top 53 bits -> [0, 1) -> [-pi, pi]
 	return float64(x>>11)*(2.0*math.Pi/(1<<53)) - math.Pi
 }
 
@@ -165,7 +165,7 @@ func stnRandPhase(state *uint64) float64 {
 // described in Polak & Erkut (DAS|DAGA 2025).
 //
 // Each STFT frame is decomposed into three components using fuzzy STN masks
-// (Fierro & VÃ¤limÃ¤ki 2023), then each component is pitch-shifted independently:
+// (Fierro & Valimaki 2023), then each component is pitch-shifted independently:
 //
 //   - Sines (S):      Phase Vocoder with frequency tracking. Transients have
 //     been masked out, which removes the main source of PV smearing.
@@ -197,7 +197,7 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 			if frameIndex >= ctx.FFTFrameSize {
 				frameIndex = ctx.Latency
 
-				// â”€â”€ Window and forward FFT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Window and forward FFT
 				mulFloat64s(ctx.Reals[:ctx.FFTFrameSize], ctx.Frame[c], ctx.Window)
 				for k := 0; k < ctx.FFTFrameSize; k++ {
 					ctx.FFTData[k] = complex(ctx.Reals[k], 0)
@@ -215,17 +215,17 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 				}
 				computeMagnitudes(ctx.Magnitudes[:bins], ctx.Reals[:bins], ctx.Imags[:bins])
 
-				// â”€â”€ STN Decomposition â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// STN Decomposition
 				//
-				// Step 1 â€“ Update causal magnitude history ring buffer.
+				// Step 1 - Update causal magnitude history ring buffer.
 				copy(ch.magHistory[ch.histIdx][:bins], ctx.Magnitudes[:bins])
 				ch.histIdx = (ch.histIdx + 1) % st.lh
 
-				// Step 2 â€“ Horizontal (time) median filter â†’ Xh.
+				// Step 2 - Horizontal (time) median filter -> Xh.
 				// Causal: only the lh most-recent frames are considered. This
 				// is the real-time adaptation of the centred filter from the
-				// offline algorithm (Fierro & VÃ¤limÃ¤ki fig. 2b).
-				// Xh is large where the spectrum is constant over time â†’ sines.
+				// offline algorithm (Fierro & Valimaki fig. 2b).
+				// Xh is large where the spectrum is constant over time -> sines.
 				for k := 0; k < bins; k++ {
 					for j := 0; j < st.lh; j++ {
 						// Reverse-walk through the ring buffer: j=0 is the
@@ -237,9 +237,9 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					st.xhBuf[k] = stnMedian(st.sortBuf[:st.lh])
 				}
 
-				// Step 3 â€“ Vertical (frequency) median filter â†’ Xv.
+				// Step 3 - Vertical (frequency) median filter -> Xv.
 				// Xv is large where the spectrum is wideband within a frame
-				// â†’ transients / impulse-like events.
+				// -> transients / impulse-like events.
 				for k := 0; k < bins; k++ {
 					start := k - halfLV
 					end := k + halfLV + 1
@@ -254,15 +254,15 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					st.xvBuf[k] = stnMedian(st.sortBuf[:n])
 				}
 
-				// Step 4 â€“ Compute fuzzy masks S, T, N (eq 1 & 2 of Fierro & VÃ¤limÃ¤ki).
+				// Step 4 - Compute fuzzy masks S, T, N (eq 1 & 2 of Fierro & Valimaki).
 				//
 				//   Rs = Xh / (Xh + Xv)   tonal-ness
 				//   Rt = Xv / (Xh + Xv)   transient-ness
 				//   S  = f(Rs)
 				//   T  = f(Rt)
-				//   N  = max(0, 1 âˆ’ S âˆ’ T)
+				//   N  = max(0, 1 - S - T)
 				//
-				// Î²L = 0.55, Î²U = 0.95 as proposed in the original work.
+				// betaL = 0.55, betaU = 0.95 as proposed in the original work.
 				for k := 0; k < bins; k++ {
 					xh := st.xhBuf[k]
 					xv := st.xvBuf[k]
@@ -285,7 +285,7 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					st.noiMask[k] = nk
 				}
 
-				// â”€â”€ PV frequency analysis for the Sines component â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// PV frequency analysis for the Sines component
 				//
 				// Standard phase-vocoder frequency tracking (same as ProcessPhaseVocoder)
 				// using dedicated phase accumulators from stnChanState so they
@@ -306,7 +306,7 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					ctx.Frequencies[k] = (float64(k) + diff) * ctx.FreqPerBin
 				}
 
-				// â”€â”€ Pitch remapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Pitch remapping
 				//
 				// Input bin k maps to output bin l = floor(k * ratio).
 				// Sines energy and its tracked frequency are accumulated into
@@ -324,34 +324,34 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					}
 				}
 
-				// â”€â”€ Sines: accumulate synthesis phase (PV) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Sines: accumulate synthesis phase (PV)
 				// The standard phase-step formula reduces algebraically because
-				// Expected = 2Ï€/O, so the two k-dependent terms cancel:
-				//   pvSumPhase[k] += synSinFreq[k] * 2Ï€ / (O Ã— FreqPerBin)
+				// Expected = 2*pi/O, so the two k-dependent terms cancel:
+				//   pvSumPhase[k] += synSinFreq[k] * 2*pi / (O * FreqPerBin)
 				pvScale := 2 * math.Pi / (float64(ctx.Oversampling) * ctx.FreqPerBin)
 				mulScalarAddFloat64s(ch.pvSumPhase[:bins], st.synSinFreq[:bins], pvScale)
 
-				// â”€â”€ Reconstruct spectrum: Sines + Transients + Noise â”€â”€â”€â”€â”€â”€â”€
+				// Reconstruct spectrum: Sines + Transients + Noise
 				//
 				// All three contributions use the same magnitude scale as the
-				// existing Phase Vocoder (Magnitudes[k] = 2Â·|X[k]|), so the
+				// existing Phase Vocoder (Magnitudes[k] = 2*|X[k]|), so the
 				// OLA WindowFactors normalisation is consistent.
 				//
-				//   Sines     â€“ pitch-shifted via PV phase accumulation
-				//   Transients â€“ original STFT complex values, T-masked, Ã—2 to
+				//   Sines     - pitch-shifted via PV phase accumulation
+				//   Transients - original STFT complex values, T-masked, *2 to
 				//                match the scale of sines/noise magnitudes
-				//   Noise     â€“ pitch-shifted magnitude, uniformly random phase
+				//   Noise     - pitch-shifted magnitude, uniformly random phase
 				//                (Noise Morphing: Moliner et al. 2024 eq 5)
 				for k := 0; k <= ctx.FFTFrameSize/2; k++ {
 					// Sines
 					sinR := st.synSinMag[k] * math.Cos(ch.pvSumPhase[k])
 					sinI := st.synSinMag[k] * math.Sin(ch.pvSumPhase[k])
 
-					// Transients (Ã—2 to match the 2Â·|X[k]| scale of sines/noise)
+					// Transients (*2 to match the 2*|X[k]| scale of sines/noise)
 					trR := 2 * st.traMask[k] * ctx.Reals[k]
 					trI := 2 * st.traMask[k] * ctx.Imags[k]
 
-					// Noise â€“ random phase, pitch-shifted magnitude
+					// Noise - random phase, pitch-shifted magnitude
 					noisePh := stnRandPhase(&st.rngState)
 					noR := st.synNoiMag[k] * math.Cos(noisePh)
 					noI := st.synNoiMag[k] * math.Sin(noisePh)
@@ -359,12 +359,12 @@ func ProcessSTN(ctx *Context, output, input []byte) {
 					ctx.FFTData[k] = complex(sinR+trR+noR, sinI+trI+noI)
 				}
 
-				// Zero negative frequencies (one-sided spectrum â†’ real output)
+				// Zero negative frequencies (one-sided spectrum -> real output)
 				for k := ctx.FFTFrameSize/2 + 1; k < ctx.FFTFrameSize; k++ {
 					ctx.FFTData[k] = 0
 				}
 
-				// â”€â”€ Inverse FFT and overlap-add â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// Inverse FFT and overlap-add
 				ctx.Inverse.Execute(ctx.FFTData, ctx.FFTData)
 
 				for k := 0; k < ctx.FFTFrameSize; k++ {

@@ -91,12 +91,12 @@ func ProcessLLSTFT(ctx *Context, output, input []byte) {
 					re := ctx.Magnitudes[a]
 					im := ctx.Frequencies[a]
 
-					// Phase correction angle Î¸ = -(b-a)*p/O * 2Ï€/N
+					// Phase correction angle theta = -(b-a)*p/O * 2*pi/N
 					theta := -float64(b-a) * float64(p) / float64(O) * twoPI / float64(N)
 					cosT := math.Cos(theta)
 					sinT := math.Sin(theta)
 
-					// Multiply phasor (re + i*im) by exp(iÎ¸) = cosT + i*sinT
+					// Multiply phasor (re + i*im) by exp(i*theta) = cosT + i*sinT
 					newRe := re*cosT - im*sinT
 					newIm := re*sinT + im*cosT
 
