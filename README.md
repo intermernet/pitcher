@@ -3,7 +3,7 @@ A pitch shifting app with multiple algorithms.
 
 Uses [gominiaudio](https://github.com/intermernet/gominiaudio) (based on [Miniaudio](https://miniaud.io/)) for audio IO.
 
-[fyne](https://fyne.io/) for GUI
+[wails v3](https://v3.wails.io/) for GUI
 
 [gofftw](https://github.com/intermernet/gofftw/) (Go port of [Fastest Fourier Transform in the West](https://www.fftw.org/)) for FFT functionality
 

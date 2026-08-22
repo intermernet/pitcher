@@ -7,274 +7,228 @@
 package main
 
 import (
+	"embed"
 	"fmt"
-	"io"
-	"log"
-	"log/slog"
+	"io/fs"
 	"strconv"
+	"sync"
 
-	_ "github.com/gogpu/gg/gpu"
-	"github.com/gogpu/gogpu"
-	"github.com/gogpu/ui/app"
-	"github.com/gogpu/ui/core/dropdown"
-	"github.com/gogpu/ui/core/slider"
-	"github.com/gogpu/ui/desktop"
-	"github.com/gogpu/ui/geometry"
-	"github.com/gogpu/ui/primitives"
-	"github.com/gogpu/ui/state"
-	"github.com/gogpu/ui/theme/material3"
-	"github.com/gogpu/ui/widget"
 	"github.com/intermernet/gominiaudio"
 	"github.com/intermernet/pitcher/algos"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// fixedFontCanvas wraps a widget.Canvas and replaces every DrawText font size
-// with a fixed value. Used to override the hard-coded 16 px font size in
-// material3.DropdownPainter.
-type fixedFontCanvas struct {
-	widget.Canvas
-	fontSize float32
+//go:embed all:frontend/dist
+var assets embed.FS
+
+// AppState is the serializable snapshot of GUI-relevant state.
+type AppState struct {
+	Shift        float64 `json:"shift"`
+	Volume       float64 `json:"volume"`
+	AlgoName     string  `json:"algoName"`
+	FrameSize    int     `json:"frameSize"`
+	Oversampling int     `json:"oversampling"`
+	LatencyMs    float64 `json:"latencyMs"`
+	Channels     int     `json:"channels"`
+	SampleRate   int     `json:"sampleRate"`
+	Periods      int     `json:"periods"`
+	BufferSize   int     `json:"bufferSize"`
+	Exclusive    bool    `json:"exclusive"`
+	InputIdx     int     `json:"inputIdx"`
+	OutputIdx    int     `json:"outputIdx"`
 }
 
-func (c fixedFontCanvas) DrawText(text string, bounds geometry.Rect, _ float32, color widget.Color, bold bool, align widget.TextAlign) {
-	c.Canvas.DrawText(text, bounds, c.fontSize, color, bold, align)
+// DeviceOption is a single audio device entry for the frontend dropdowns.
+type DeviceOption struct {
+	Name      string `json:"name"`
+	IsDefault bool   `json:"isDefault"`
 }
 
-// smallDropdownPainter delegates to material3.DropdownPainter but paints all
-// text at a smaller fixed size so it fits inside compact dropdowns.
-type smallDropdownPainter struct {
-	inner    material3.DropdownPainter
-	fontSize float32
+// PitcherService exposes all GUI-controllable operations to the Wails frontend.
+type PitcherService struct {
+	mu               sync.Mutex
+	s                *shifter
+	inputs           []gominiaudio.DeviceInfo
+	outputs          []gominiaudio.DeviceInfo
+	restartAudio     func(*gominiaudio.DeviceID, *gominiaudio.DeviceID)
+	currentInputIdx  int
+	currentOutputIdx int
 }
 
-func (p smallDropdownPainter) PaintTrigger(canvas widget.Canvas, state *dropdown.TriggerPaintState) {
-	p.inner.PaintTrigger(fixedFontCanvas{canvas, p.fontSize}, state)
+func (ps *PitcherService) latencyMs() float64 {
+	return float64(ps.s.Latency) / ps.s.SampleRate * 1000.0
 }
 
-func (p smallDropdownPainter) PaintMenu(canvas widget.Canvas, state *dropdown.MenuPaintState) {
-	p.inner.PaintMenu(fixedFontCanvas{canvas, p.fontSize}, state)
+// GetState returns a snapshot of the current application state.
+func (ps *PitcherService) GetState() AppState {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return AppState{
+		Shift:        ps.s.PitchShift,
+		Volume:       ps.s.Volume,
+		AlgoName:     ps.s.AlgoName,
+		FrameSize:    ps.s.FFTFrameSize,
+		Oversampling: ps.s.Oversampling,
+		LatencyMs:    ps.latencyMs(),
+		Channels:     int(ps.s.Channels),
+		SampleRate:   int(ps.s.SampleRate),
+		Periods:      ps.s.periods,
+		BufferSize:   ps.s.bufferSize,
+		Exclusive:    ps.s.exclusive,
+		InputIdx:     ps.currentInputIdx,
+		OutputIdx:    ps.currentOutputIdx,
+	}
 }
 
+// GetAlgoNames returns all available algorithm full names.
+func (ps *PitcherService) GetAlgoNames() []string {
+	return algos.FullNames()
+}
+
+// GetFrameSizes returns the available FFT frame size option strings.
+func (ps *PitcherService) GetFrameSizes() []string {
+	return []string{"256", "512", "1024", "2048", "4096"}
+}
+
+// GetOversamplingOptions returns the available oversampling option strings.
+func (ps *PitcherService) GetOversamplingOptions() []string {
+	return []string{"1", "2", "4", "8"}
+}
+
+// GetInputDevices returns the available input audio devices.
+func (ps *PitcherService) GetInputDevices() []DeviceOption {
+	opts := make([]DeviceOption, len(ps.inputs))
+	for i, d := range ps.inputs {
+		name := d.Name
+		if d.IsDefault {
+			name = fmt.Sprintf("%s [default]", name)
+		}
+		opts[i] = DeviceOption{Name: name, IsDefault: d.IsDefault}
+	}
+	return opts
+}
+
+// GetOutputDevices returns the available output audio devices.
+func (ps *PitcherService) GetOutputDevices() []DeviceOption {
+	opts := make([]DeviceOption, len(ps.outputs))
+	for i, d := range ps.outputs {
+		name := d.Name
+		if d.IsDefault {
+			name = fmt.Sprintf("%s [default]", name)
+		}
+		opts[i] = DeviceOption{Name: name, IsDefault: d.IsDefault}
+	}
+	return opts
+}
+
+// SetPitch sets the pitch-shift value in semitones (-12 to +12).
+func (ps *PitcherService) SetPitch(value float64) {
+	ps.s.PitchShift = value
+}
+
+// SetVolume sets the output volume (0.0 to 1.0).
+func (ps *PitcherService) SetVolume(value float64) {
+	ps.s.Volume = value
+}
+
+// SetAlgorithm switches to the algorithm identified by its full name.
+func (ps *PitcherService) SetAlgorithm(name string) {
+	for _, a := range algos.Algorithms {
+		if a.FullName == name {
+			ps.s.SetAlgorithm(a)
+			return
+		}
+	}
+}
+
+// SetFrameSize changes the FFT frame size and returns the updated latency in ms.
+func (ps *PitcherService) SetFrameSize(sizeStr string) float64 {
+	size, err := strconv.Atoi(sizeStr)
+	if err != nil || size == 0 {
+		return ps.latencyMs()
+	}
+	ps.s.ReinitContext(size, ps.s.Oversampling)
+	return ps.latencyMs()
+}
+
+// SetOversampling changes the oversampling factor and returns the updated latency in ms.
+func (ps *PitcherService) SetOversampling(osStr string) float64 {
+	os, err := strconv.Atoi(osStr)
+	if err != nil || os == 0 {
+		return ps.latencyMs()
+	}
+	ps.s.ReinitContext(ps.s.FFTFrameSize, os)
+	return ps.latencyMs()
+}
+
+// SetInputDevice changes the audio input device by index.
+func (ps *PitcherService) SetInputDevice(idx int) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if idx < 0 || idx >= len(ps.inputs) {
+		return
+	}
+	ps.currentInputIdx = idx
+	captureID := ps.inputs[idx].ID
+	playbackID := ps.outputs[ps.currentOutputIdx].ID
+	ps.restartAudio(&captureID, &playbackID)
+}
+
+// SetOutputDevice changes the audio output device by index.
+func (ps *PitcherService) SetOutputDevice(idx int) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if idx < 0 || idx >= len(ps.outputs) {
+		return
+	}
+	ps.currentOutputIdx = idx
+	captureID := ps.inputs[ps.currentInputIdx].ID
+	playbackID := ps.outputs[idx].ID
+	ps.restartAudio(&captureID, &playbackID)
+}
+
+// gui constructs a Wails v3 application and returns a function that runs it.
 func gui(s *shifter, inputs, outputs []gominiaudio.DeviceInfo, initialInputIdx, initialOutputIdx int, restartAudio func(*gominiaudio.DeviceID, *gominiaudio.DeviceID)) func() error {
-	m3 := material3.New(widget.Hex(0x6750A4))
-	cs := m3.Colors
-
-	gogpuApp := gogpu.NewApp(gogpu.DefaultConfig().
-		WithTitle("Pitcher").
-		WithSize(800, 520).
-		WithResizable(true))
-
-	// Static device info label
-	excl := "No"
-	if s.exclusive {
-		excl = "Yes"
+	svc := &PitcherService{
+		s:                s,
+		inputs:           inputs,
+		outputs:          outputs,
+		restartAudio:     restartAudio,
+		currentInputIdx:  initialInputIdx,
+		currentOutputIdx: initialOutputIdx,
 	}
-	infoText := fmt.Sprintf(
-		"Channels: %d  |  Sample Rate: %d Hz  |  Periods: %d  |  Buffer: %d frames  |  Exclusive: %s",
-		s.Channels, int(s.SampleRate), s.periods, s.bufferSize, excl)
-
-	// Latency � updated whenever frame size or oversampling changes
-	latency := state.NewSignal(fmt.Sprintf("Latency: %.1f ms", float64(s.Latency)/s.SampleRate*1000.0))
-	updateLatency := func() {
-		latency.Set(fmt.Sprintf("Latency: %.1f ms", float64(s.Latency)/s.SampleRate*1000.0))
-	}
-
-	// Track current DSP settings so each selector can pass the other's value
-	// when calling ReinitContext.
-	currentFrameSize := s.FFTFrameSize
-	currentOversampling := s.Oversampling
-
-	dropPainter := smallDropdownPainter{inner: material3.DropdownPainter{Theme: m3}, fontSize: 12}
-
-	// Frame size selector
-	frameSizeOptions := []string{"256", "512", "1024", "2048", "4096"}
-	frameSizeIdx := 0
-	for i, v := range frameSizeOptions {
-		if v == strconv.Itoa(s.FFTFrameSize) {
-			frameSizeIdx = i
-			break
-		}
-	}
-	frameSizeDrop := dropdown.New(
-		dropdown.Items(frameSizeOptions...),
-		dropdown.Selected(frameSizeIdx),
-		dropdown.OnChange(func(_ int, v string) {
-			fs, _ := strconv.Atoi(v)
-			s.ReinitContext(fs, currentOversampling)
-			currentFrameSize = fs
-			updateLatency()
-		}),
-		dropdown.PainterOpt(dropPainter),
-	)
-
-	// Oversampling selector
-	oversamplingOptions := []string{"1", "2", "4", "8"}
-	oversamplingIdx := 0
-	for i, v := range oversamplingOptions {
-		if v == strconv.Itoa(s.Oversampling) {
-			oversamplingIdx = i
-			break
-		}
-	}
-	oversamplingDrop := dropdown.New(
-		dropdown.Items(oversamplingOptions...),
-		dropdown.Selected(oversamplingIdx),
-		dropdown.OnChange(func(_ int, v string) {
-			ov, _ := strconv.Atoi(v)
-			s.ReinitContext(currentFrameSize, ov)
-			currentOversampling = ov
-			updateLatency()
-		}),
-		dropdown.PainterOpt(dropPainter),
-	)
-
-	dspRow := primitives.HBox(
-		primitives.Text("Frame Size:").FontSize(13),
-		frameSizeDrop,
-		primitives.Text("Oversampling:").FontSize(13),
-		oversamplingDrop,
-		primitives.TextFn(func() string { return latency.Get() }).FontSize(13),
-	).Gap(8)
-
-	// Pitch slider � two-way bound signal drives both the slider and the label
-	pitchSig := state.NewSignal(float32(*shift))
-	state.SubscribeForever(pitchSig, func(v float32) { s.PitchShift = float64(v) })
-	pitchSlider := slider.New(
-		slider.Min(-12),
-		slider.Max(12),
-		slider.Step(0.01),
-		slider.ValueSignal(pitchSig),
-		slider.PainterOpt(material3.SliderPainter{Theme: m3}),
-	)
-
-	// Volume slider
-	volSig := state.NewSignal(float32(1.0))
-	state.SubscribeForever(volSig, func(v float32) { s.Volume = float64(v) })
-	volSlider := slider.New(
-		slider.Min(0),
-		slider.Max(1),
-		slider.Step(0.01),
-		slider.ValueSignal(volSig),
-		slider.PainterOpt(material3.SliderPainter{Theme: m3}),
-	)
-
-	// Algorithm selector
-	algoNames := algos.FullNames()
-	algoIdx := 0
-	for i, n := range algoNames {
-		if n == s.AlgoName {
-			algoIdx = i
-			break
-		}
-	}
-	algoLabelSig := state.NewSignal("Algorithm: " + s.AlgoName)
-	algoDrop := dropdown.New(
-		dropdown.Items(algoNames...),
-		dropdown.Selected(algoIdx),
-		dropdown.OnChange(func(_ int, name string) {
-			for _, a := range algos.Algorithms {
-				if a.FullName == name {
-					s.SetAlgorithm(a)
-					algoLabelSig.Set("Algorithm: " + s.AlgoName)
-					break
-				}
-			}
-		}),
-		dropdown.PainterOpt(dropPainter),
-	)
-
-	// Device selectors
-	deviceOptionNames := func(devices []gominiaudio.DeviceInfo) []string {
-		names := make([]string, len(devices))
-		for i, d := range devices {
-			if d.IsDefault {
-				names[i] = fmt.Sprintf("%d: %s [default]", i, d.Name)
-			} else {
-				names[i] = fmt.Sprintf("%d: %s", i, d.Name)
-			}
-		}
-		return names
-	}
-
-	currentCaptureID := inputs[initialInputIdx].ID
-	currentPlaybackID := outputs[initialOutputIdx].ID
-
-	inputDrop := dropdown.New(
-		dropdown.Items(deviceOptionNames(inputs)...),
-		dropdown.Selected(initialInputIdx),
-		dropdown.OnChange(func(idx int, _ string) {
-			if idx < 0 || idx >= len(inputs) {
-				return
-			}
-			currentCaptureID = inputs[idx].ID
-			pid := currentPlaybackID
-			restartAudio(&currentCaptureID, &pid)
-		}),
-		dropdown.PainterOpt(dropPainter),
-	)
-
-	outputDrop := dropdown.New(
-		dropdown.Items(deviceOptionNames(outputs)...),
-		dropdown.Selected(initialOutputIdx),
-		dropdown.OnChange(func(idx int, _ string) {
-			if idx < 0 || idx >= len(outputs) {
-				return
-			}
-			currentPlaybackID = outputs[idx].ID
-			cid := currentCaptureID
-			restartAudio(&cid, &currentPlaybackID)
-		}),
-		dropdown.PainterOpt(dropPainter),
-	)
-
-	// labelW is wide enough for "Output:" at 13 px so both labels align.
-	const labelW float32 = 60
-
-	inputRow := primitives.HBox(
-		primitives.Box(primitives.Text("Input:").FontSize(13)).Width(labelW),
-		primitives.Expanded(inputDrop),
-	).Gap(8)
-
-	outputRow := primitives.HBox(
-		primitives.Box(primitives.Text("Output:").FontSize(13)).Width(labelW),
-		primitives.Expanded(outputDrop),
-	).Gap(8)
-
-	deviceRow := primitives.VBox(inputRow, outputRow).Gap(4)
-
-	// Root layout
-	root := primitives.VBox(
-		primitives.Text(infoText).FontSize(12),
-		deviceRow,
-		dspRow,
-		primitives.TextFn(func() string { return algoLabelSig.Get() }).FontSize(13),
-		primitives.HBox(primitives.Expanded(algoDrop)),
-		primitives.TextFn(func() string {
-			return fmt.Sprintf("Pitch = %.2f", pitchSig.Get())
-		}).FontSize(13),
-		pitchSlider,
-		primitives.TextFn(func() string {
-			return fmt.Sprintf("Volume = %.2f", volSig.Get())
-		}).FontSize(13),
-		volSlider,
-	).
-		Gap(8).
-		Padding(16).
-		Background(cs.Background)
-
-	uiApp := app.New(
-		app.WithWindowProvider(gogpuApp),
-		app.WithPlatformProvider(gogpuApp),
-		app.WithEventSource(gogpuApp.EventSource()),
-		app.WithTheme(m3.AsTheme()),
-	)
-	uiApp.SetRoot(root)
 
 	return func() error {
-		// Silence the standard log package (used by desktop.go error handlers)
-		// and slog.Default() so no gogpu diagnostics appear on the console.
-		log.SetOutput(io.Discard)
-		slog.SetDefault(slog.New(slog.DiscardHandler))
-		return desktop.Run(gogpuApp, uiApp)
+		subFS, err := fs.Sub(assets, "frontend/dist")
+		if err != nil {
+			return fmt.Errorf("embedded assets: %w", err)
+		}
+
+		app := application.New(application.Options{
+			Name:        "Pitcher",
+			Description: "Real-time pitch shifter",
+			Services: []application.Service{
+				application.NewService(svc),
+			},
+			Assets: application.AssetOptions{
+				Handler: application.BundledAssetFileServer(subFS),
+			},
+			Mac: application.MacOptions{
+				ApplicationShouldTerminateAfterLastWindowClosed: true,
+			},
+		})
+
+		app.Window.NewWithOptions(application.WebviewWindowOptions{
+			Title:            "Pitcher",
+			Width:            820,
+			Height:           600,
+			MinWidth:         620,
+			MinHeight:        440,
+			BackgroundColour: application.NewRGB(18, 18, 18),
+			URL:              "/",
+			InitialPosition:  application.WindowCentered,
+		})
+
+		return app.Run()
 	}
 }

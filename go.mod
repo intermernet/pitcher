@@ -3,22 +3,18 @@ module github.com/intermernet/pitcher
 go 1.26.1
 
 require (
-	github.com/gogpu/gg v0.50.2
-	github.com/gogpu/gogpu v0.43.4
-	github.com/gogpu/ui v0.1.42
 	github.com/intermernet/gofftw v0.0.2
 	github.com/intermernet/gominiaudio v0.0.3
+	github.com/wailsapp/wails/v3 v3.0.0-beta.11
 )
 
 require (
-	github.com/coregx/signals v0.1.0 // indirect
-	github.com/go-webgpu/goffi v0.5.6 // indirect
-	github.com/go-webgpu/webgpu v0.5.2 // indirect
-	github.com/gogpu/gpucontext v0.21.0 // indirect
-	github.com/gogpu/gputypes v0.5.1 // indirect
-	github.com/gogpu/naga v0.17.15 // indirect
-	github.com/gogpu/wgpu v0.30.9 // indirect
-	golang.org/x/image v0.43.0 // indirect
+	github.com/adrg/xdg v0.5.3 // indirect
+	github.com/coder/websocket v1.8.14 // indirect
+	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
 )

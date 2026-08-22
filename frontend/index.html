@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pitcher</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="info-bar" id="info-bar">Initialising…</header>
+
+    <main class="controls">
+
+      <section class="section" id="section-devices">
+        <h2>Audio Devices</h2>
+        <div class="field-row">
+          <label for="input-device">Input</label>
+          <select id="input-device"></select>
+        </div>
+        <div class="field-row">
+          <label for="output-device">Output</label>
+          <select id="output-device"></select>
+        </div>
+      </section>
+
+      <section class="section" id="section-dsp">
+        <h2>DSP Settings</h2>
+        <div class="field-row">
+          <label for="algorithm">Algorithm</label>
+          <select id="algorithm"></select>
+        </div>
+        <div class="field-row">
+          <label for="frame-size">Frame Size</label>
+          <select id="frame-size"></select>
+          <label for="oversampling" class="label-spaced">Oversampling</label>
+          <select id="oversampling"></select>
+        </div>
+        <div class="field-row stat-row">
+          <span id="latency-display" class="stat">Latency: — ms</span>
+        </div>
+      </section>
+
+      <section class="section" id="section-pitch">
+        <h2>Pitch Shift</h2>
+        <div class="slider-row">
+          <span class="range-label">−12 st</span>
+          <input type="range" id="pitch-slider" min="-12" max="12" step="0.01" value="0">
+          <span class="range-label">+12 st</span>
+          <span id="pitch-value" class="value-chip">0.00 st</span>
+        </div>
+      </section>
+
+      <section class="section" id="section-volume">
+        <h2>Volume</h2>
+        <div class="slider-row">
+          <span class="range-label">0</span>
+          <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1">
+          <span class="range-label">1</span>
+          <span id="volume-value" class="value-chip">1.00</span>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
