@@ -1,11 +1,31 @@
 #!/usr/bin/env sh
 # Build script for Pitcher.
-# Prerequisites: Go 1.25+, gcc/cc (for CGo), npm, and an internet connection
-# for the first run (to download Go modules and npm packages).
+# Prerequisites: Go 1.25+, npm, and an internet connection for the first run.
+# On macOS: Xcode Command Line Tools. On Linux: gcc + webkitgtk dev headers.
 set -e
 
 die() { printf 'Error: %s\n' "$1" >&2; exit 1; }
 info() { printf '==> %s\n' "$1"; }
+
+# ── WSL: ensure Linux tools are used, not Windows interop binaries ───────────
+# When running inside WSL the shell inherits the Windows PATH. If Node/Go/npm
+# have not been installed inside the WSL distro, the shell silently picks up
+# Windows .exe/.cmd wrappers that cannot handle \\wsl.localhost UNC paths.
+if [ -n "$WSL_DISTRO_NAME" ]; then
+    for tool in go npm node; do
+        tool_path=$(command -v "$tool" 2>/dev/null || true)
+        case "$tool_path" in
+            /mnt/*) die "WSL detected, but '$tool' resolves to a Windows binary ($tool_path).
+  All build tools must be the native Linux versions when building inside WSL.
+  Install them inside the distro, for example:
+    Go:   https://go.dev/dl/  (download the Linux tarball)
+    Node: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+          sudo apt install -y nodejs
+  Then open a new terminal so the Linux PATH entries take priority." ;;
+        esac
+    done
+    info "WSL distro: $WSL_DISTRO_NAME (all tools are Linux-native)"
+fi
 
 # ── Go ──────────────────────────────────────────────────────────────────────
 command -v go >/dev/null 2>&1 || die "Go is not installed. See https://go.dev/dl/"
