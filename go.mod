@@ -1,10 +1,10 @@
 module github.com/intermernet/pitcher
 
-go 1.26.1
+go 1.27.0
 
 require (
 	github.com/intermernet/gofftw v0.0.2
-	github.com/intermernet/gominiaudio v0.0.3
+	github.com/intermernet/gominiaudio v0.0.4
 	github.com/wailsapp/wails/v3 v3.0.0-beta.11
 )
 

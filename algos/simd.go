@@ -4,8 +4,123 @@ package algos
 
 import (
 	"math"
-	"simd/archsimd"
+	"simd"
 )
+
+// zeroFloat64s sets all elements of s to zero using SIMD.
+func zeroFloat64s(s []float64) {
+	zero := simd.BroadcastFloat64s(0)
+	n := zero.Len()
+	i := 0
+	for ; i+n <= len(s); i += n {
+		zero.Store(s[i:])
+	}
+	if i < len(s) {
+		zero.StorePart(s[i:])
+	}
+}
+
+// copyFloat64s copies elements from src to dst using SIMD.
+// dst and src must not overlap in a way that dst is ahead of src.
+func copyFloat64s(dst, src []float64) {
+	n := simd.BroadcastFloat64s(0).Len()
+	i := 0
+	for ; i+n <= len(src); i += n {
+		simd.LoadFloat64s(src[i:]).Store(dst[i:])
+	}
+	if i < len(src) {
+		v, _ := simd.LoadFloat64sPart(src[i:])
+		v.StorePart(dst[i:])
+	}
+}
+
+// mulFloat64s computes dst[i] = a[i] * b[i] using SIMD.
+func mulFloat64s(dst, a, b []float64) {
+	n := simd.BroadcastFloat64s(0).Len()
+	i := 0
+	for ; i+n <= len(a); i += n {
+		va := simd.LoadFloat64s(a[i:])
+		vb := simd.LoadFloat64s(b[i:])
+		va.Mul(vb).Store(dst[i:])
+	}
+	for ; i < len(a); i++ {
+		dst[i] = a[i] * b[i]
+	}
+}
+
+// mulAddFloat64s computes acc[i] += a[i] * b[i] using SIMD with FMA.
+func mulAddFloat64s(acc, a, b []float64) {
+	n := simd.BroadcastFloat64s(0).Len()
+	i := 0
+	for ; i+n <= len(acc); i += n {
+		vacc := simd.LoadFloat64s(acc[i:])
+		va := simd.LoadFloat64s(a[i:])
+		vb := simd.LoadFloat64s(b[i:])
+		va.MulAdd(vb, vacc).Store(acc[i:])
+	}
+	for ; i < len(acc); i++ {
+		acc[i] += a[i] * b[i]
+	}
+}
+
+// computeMagnitudes computes dst[i] = 2 * sqrt(re[i]*re[i] + im[i]*im[i]) using SIMD.
+func computeMagnitudes(dst, re, im []float64) {
+	two := simd.BroadcastFloat64s(2)
+	n := two.Len()
+	i := 0
+	for ; i+n <= len(dst); i += n {
+		vr := simd.LoadFloat64s(re[i:])
+		vi := simd.LoadFloat64s(im[i:])
+		rSq := vr.Mul(vr)
+		iSq := vi.Mul(vi)
+		two.Mul(rSq.Add(iSq).Sqrt()).Store(dst[i:])
+	}
+	for ; i < len(dst); i++ {
+		r, m := re[i], im[i]
+		dst[i] = 2 * math.Sqrt(r*r+m*m)
+	}
+}
+
+// mulScalarAddFloat64s computes acc[i] += src[i] * scalar using SIMD with FMA.
+func mulScalarAddFloat64s(acc, src []float64, scalar float64) {
+	vscalar := simd.BroadcastFloat64s(scalar)
+	n := vscalar.Len()
+	i := 0
+	for ; i+n <= len(acc); i += n {
+		vacc := simd.LoadFloat64s(acc[i:])
+		vsrc := simd.LoadFloat64s(src[i:])
+		vsrc.MulAdd(vscalar, vacc).Store(acc[i:])
+	}
+	for ; i < len(acc); i++ {
+		acc[i] += src[i] * scalar
+	}
+}
+
+// dotFloat64s computes the dot product sum(a[i]*b[i]) using SIMD with FMA.
+func dotFloat64s(a, b []float64) float64 {
+	vsum := simd.BroadcastFloat64s(0)
+	n := vsum.Len()
+	i := 0
+	for ; i+n <= len(a); i += n {
+		va := simd.LoadFloat64s(a[i:])
+		vb := simd.LoadFloat64s(b[i:])
+		vsum = va.MulAdd(vb, vsum)
+	}
+	// Handle the tail with partial load so it stays branchless within the vector unit.
+	if i < len(a) {
+		va, _ := simd.LoadFloat64sPart(a[i:])
+		vb, _ := simd.LoadFloat64sPart(b[i:])
+		vsum = va.MulAdd(vb, vsum)
+	}
+	// Horizontal reduction via a fixed-size scratch array (16 covers up to 1024-bit vectors).
+	var tmp [16]float64
+	vsum.Store(tmp[:n])
+	var sum float64
+	for j := 0; j < n; j++ {
+		sum += tmp[j]
+	}
+	return sum
+}
 
 // zeroFloat64s sets all elements of s to zero using SIMD.
 func zeroFloat64s(s []float64) {
